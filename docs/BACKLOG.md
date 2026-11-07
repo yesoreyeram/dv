@@ -29,7 +29,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-032 | Bundle-size budget check in CI (initial JS 250 KB / CSS 50 KB gzip, `make size`) | M1 | NFR-PERF-004 | In review (PR #2) |
 | B-033 | Enforce `go mod tidy -diff` in CI (go.sum lacks hashes for test-only deps of godog because this run's sandbox could not reach proxy.golang.org) | M0 | NFR-SEC-014 | Todo |
 | B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
-| B-035 | Triage moderate `minimatch` advisory (dev-only, via typescript-eslint in e2e) | M0 | NFR-SEC-010 | Todo |
+| B-035 | Fix moderate `minimatch` advisory GHSA-g3hv-75wg-m249 (dev-only, via typescript-eslint) with a scoped override; tighten the audit gate (prod: low+, all: moderate+) | M0 | NFR-SEC-010 AC1–AC4 | In review (PR #2) |
 | B-036 | E2E scenario asserting zero CSP violations in the browser (events + console), with injected-script negative control | M1 | NFR-SEC-007 | In review (PR #2) |
 | B-037 | Host-provided `os.Root` handed to plugins (ADR-0002) — `internal/fsroot` | M2 | NFR-SEC-006 | In review (PR #4) |
 | B-039 | Policy HTTP client handed to plugins (ADR-0002) — lands with the REST source | M5 | NFR-SEC-005 | Todo |

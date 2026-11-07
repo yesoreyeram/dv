@@ -53,7 +53,7 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 | STRIDE | Threat | Mitigation | Verified by |
 | --- | --- | --- | --- |
 | T | Malicious content in API responses rendered as HTML | No `dangerouslySetInnerHTML`; ESLint `react/no-danger` equivalent enforced by review; values rendered as text | Vitest, review |
-| T | Supply-chain compromise of npm packages | Lockfile pinned, `--frozen-lockfile` in CI, `pnpm audit`, Dependabot, minimal dependency set, no CDN scripts (CSP forbids them) | CI |
+| T | Supply-chain compromise of npm packages | Lockfile pinned, `--frozen-lockfile` in CI, `pnpm audit` (prod deps: low+ fails; all deps: moderate+ fails), scoped and documented `overrides` for unfixed transitive advisories (SECURITY.md), Dependabot, minimal dependency set, no CDN scripts (CSP forbids them) | CI `web` job |
 | I | Theme preference storage leaks data | Only `"light"`/`"dark"` stored in `localStorage`; reads wrapped in try/catch | `theme.test.tsx` |
 | D | Unbounded retries hammer the API | TanStack Query retry capped (2) with exponential backoff | `queryClient.ts` |
 
