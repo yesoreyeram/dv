@@ -125,6 +125,9 @@ func TestOpenErrors(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "escape.csv")); err != nil {
 		t.Fatal(err)
 	}
+	// The escape target must exist: some Go versions report a missing target as
+	// "not found" before noticing the escape.
+	write(t, filepath.Join(filepath.Dir(dir), "parent-secret.csv"), "secret")
 	if err := os.Symlink("../", filepath.Join(dir, "up")); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +146,7 @@ func TestOpenErrors(t *testing.T) {
 		{"traversal", "data", "../secret.csv", ErrInvalidPath},
 		{"absolute", "data", outside, ErrInvalidPath},
 		{"symlink escape", "data", "escape.csv", ErrInvalidPath},
-		{"symlink dir escape", "data", "up/secret.csv", ErrInvalidPath},
+		{"symlink dir escape", "data", "up/parent-secret.csv", ErrInvalidPath},
 		{"missing", "data", "missing.csv", ErrNotFound},
 		{"directory", "data", "folder", ErrNotRegular},
 		{"too large", "data", "big.csv", ErrTooLarge},
