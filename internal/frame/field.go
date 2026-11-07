@@ -189,6 +189,12 @@ const (
 	sizeTime      = 24 // time.Time (wall, ext, loc)
 )
 
+// EstimateValueSize returns the estimated retained size of one stored value, as counted
+// against Limits.MaxBytes by Builder.AppendRow. v must already be of the canonical Go type
+// for its field (int64, float64, bool, string, time.Time, json.RawMessage or nil). Decoders
+// use it to plan which rows fit before building a frame.
+func EstimateValueSize(v any) int { return estimateSize(v) }
+
 // estimateSize approximates the retained memory of one value for byte limits
 // (NFR-PERF-003). It errs high rather than low: a byte limit is a memory guard, so an
 // estimate below the real cost lets results overshoot it. Growth slack in the backing

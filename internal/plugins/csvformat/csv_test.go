@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -464,6 +465,57 @@ func TestWideRecordIsRejectedBeforeAllocation(t *testing.T) {
 	// Without the guard encoding/csv allocates >1 GiB here; with it, a few buffers.
 	if got := after.TotalAlloc - before.TotalAlloc; got > 4<<20 {
 		t.Fatalf("allocated %d bytes before rejecting the record", got)
+	}
+}
+
+// Review PRRT on csv.go:422 (Codex, 2026-11-07): when columns change type on different
+// rows, only the changed column may be re-converted. 128 columns, 600 numeric rows, then
+// 128 rows that each turn one more column into a string. Re-converting the whole prefix
+// per change allocated ~924 MiB here; per-column re-conversion allocates ~22 MiB, the
+// same as when every column changes on one row.
+func TestStaggeredTypeChangesStayLinear(t *testing.T) {
+	const cols, numeric = 128, 600
+	var b strings.Builder
+	line := func(cell func(c int) string) {
+		for c := range cols {
+			if c > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(cell(c))
+		}
+		b.WriteByte('\n')
+	}
+	line(func(c int) string { return "c" + strconv.Itoa(c) })
+	for range numeric {
+		line(func(int) string { return "1" })
+	}
+	for r := range cols {
+		line(func(c int) string {
+			if c == r {
+				return "x"
+			}
+			return "1"
+		})
+	}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	frames, err := NewCSV().Decode(context.Background(), strings.NewReader(b.String()), plugin.DecodeOptions{})
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fr := frames[0]
+	if fr.Rows() != numeric+cols || fr.Meta.Truncated {
+		t.Fatalf("rows %d truncated %v", fr.Rows(), fr.Meta.Truncated)
+	}
+	for c := range cols {
+		if got := fr.Fields[c].Type; got != frame.TypeString {
+			t.Fatalf("column %d type %s", c, got)
+		}
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 128<<20 {
+		t.Fatalf("allocated %d MiB for a %d KiB input", got>>20, b.Len()>>10)
 	}
 }
 

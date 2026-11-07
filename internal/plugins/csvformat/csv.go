@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -386,18 +385,17 @@ func truncateUTF8(s string, n int) string {
 // build infers types and converts records into a frame. It checks ctx every
 // cancelCheckEvery rows so a cancelled query stops consuming CPU.
 //
-// Types are inferred only from rows the frame keeps (FR-011 AC4). The byte limit is
-// enforced by the builder on converted values, so whether a row fits depends on the
-// column types, and the types depend on which rows are kept. build therefore streams:
-// each record narrows the per-column candidate types, and the record is appended with
-// the types inferred from the prefix including it. When a record widens a column's
-// type, the builder is rebuilt from the retained prefix under the new types. If either
-// the rebuild or the record itself does not fit, the frame built so far (with the
-// previous types) is returned, truncated. A column's type changes at most four times (from
-// string while only empty cells are seen, then only by dropping candidates among bool,
-// number and time, finally to string), so the number of rebuilds is bounded. The overflow
-// record read past MaxRows never influences types; it is only used to flag the row
-// limit.
+// Types are inferred only from rows the frame keeps (FR-011 AC4/AC7). The byte limit is
+// counted on converted values, so whether a row fits depends on the column types, and
+// the types depend on which rows are kept. build therefore streams over column-wise
+// state: each record narrows the per-column candidate types and is accepted only if the
+// retained prefix plus the record fits under the types inferred from that prefix. When a
+// record changes a column's type, only that column is re-converted over the prefix. A
+// column's type changes at most four times (from string while only empty cells are seen,
+// then only by dropping candidates among bool, number and time, finally to string), so
+// the total work is linear in the retained data: at most five conversions per cell. The
+// overflow record read past MaxRows never influences types; it only lets the builder flag
+// the row limit.
 func build(ctx context.Context, names []string, records [][]string, opts plugin.DecodeOptions) (*frame.Frame, error) {
 	sample := records
 	if m := opts.Limits.MaxRows; m > 0 && len(sample) > m {
@@ -405,11 +403,12 @@ func build(ctx context.Context, names []string, records [][]string, opts plugin.
 	}
 	inf := newInferrer(names, opts.FieldTypes)
 	types := inf.types()
-	cur, err := fill(ctx, names, types, nil, opts.Limits)
-	if err != nil {
-		return nil, err
-	}
+	cols := make([]column, len(names))
+	var total int64
 	stopped := false
+	row := make([]any, len(names))
+	bad := make([]bool, len(names))
+	changed := make(map[int]column)
 	for n, rec := range sample {
 		if n%cancelCheckEvery == 0 {
 			if err := ctx.Err(); err != nil {
@@ -417,65 +416,77 @@ func build(ctx context.Context, names []string, records [][]string, opts plugin.
 			}
 		}
 		next := inf.peek(rec)
-		cand := cur
-		if !slices.Equal(next, types) {
-			cand, err = fill(ctx, names, next, sample[:n], opts.Limits)
+		clear(changed)
+		size := total
+		for i := range next {
+			if next[i] == types[i] {
+				continue
+			}
+			c, err := convertColumn(ctx, next[i], sample[:n], i)
 			if err != nil {
 				return nil, err
 			}
-			if cand.b.Frame().Rows() < n {
-				stopped = true // the widened types no longer fit the retained rows
-				break
-			}
+			changed[i] = c
+			size += c.bytes - cols[i].bytes
 		}
-		ok, err := cand.append(rec)
-		if err != nil {
-			return nil, err
+		for i, cell := range rec {
+			v, ok := convert(next[i], cell)
+			row[i], bad[i] = v, !ok
+			size += int64(frame.EstimateValueSize(v))
 		}
-		if !ok {
+		if opts.Limits.MaxBytes > 0 && size > opts.Limits.MaxBytes {
 			stopped = true
 			break
 		}
-		cur, types = cand, next
+		for i, c := range changed {
+			cols[i] = c
+		}
+		for i, v := range row {
+			cols[i].vals = append(cols[i].vals, v)
+			if bad[i] {
+				cols[i].failed++
+			}
+		}
+		for i, v := range row {
+			cols[i].bytes += int64(frame.EstimateValueSize(v))
+		}
+		total, types = size, next
 		inf.commit(rec)
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	fr := cur.b.Frame()
-	switch {
-	case stopped && !fr.Meta.Truncated:
-		fr.Meta.Truncated = true
-		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Result truncated at the byte limit of %d bytes.", opts.Limits.MaxBytes))
-	case !stopped && len(records) > len(sample):
-		// The overflow record only lets the builder flag the row limit.
-		if _, err := cur.append(records[len(sample)]); err != nil {
-			return nil, err
-		}
-	}
-	for i, n := range cur.failed {
-		if n > 0 {
-			noun := "values"
-			if n == 1 {
-				noun = "value"
+	return assemble(ctx, names, types, cols, records, len(sample), stopped, opts.Limits)
+}
+
+// column holds one column's converted values for the retained prefix, their estimated
+// size and how many cells failed conversion (only possible under a fieldTypes override).
+type column struct {
+	vals   []any
+	bytes  int64
+	failed int
+}
+
+// convertColumn converts column i of rows under type t.
+func convertColumn(ctx context.Context, t frame.FieldType, rows [][]string, i int) (column, error) {
+	c := column{vals: make([]any, len(rows))}
+	for n, rec := range rows {
+		if n%cancelCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return column{}, err
 			}
-			fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("%d %s in field %q could not be read as %s and were set to null.", n, noun, names[i], types[i]))
 		}
+		v, ok := convert(t, rec[i])
+		if !ok {
+			c.failed++
+		}
+		c.vals[n] = v
+		c.bytes += int64(frame.EstimateValueSize(v))
 	}
-	return fr, nil
+	return c, nil
 }
 
-// partial is a frame under construction with fixed column types.
-type partial struct {
-	b      *frame.Builder
-	types  []frame.FieldType
-	failed []int
-	row    []any
-	bad    []bool
-}
-
-// fill builds a frame with the given types from rows, stopping at the limits.
-func fill(ctx context.Context, names []string, types []frame.FieldType, rows [][]string, lim frame.Limits) (*partial, error) {
+// assemble builds the frame from the planned columns. Every planned row fits the limits
+// by construction; the builder still enforces them. When the sample was complete and an
+// overflow record exists, appending it lets the builder flag the row limit.
+func assemble(ctx context.Context, names []string, types []frame.FieldType, cols []column, records [][]string, sampled int, stopped bool, lim frame.Limits) (*frame.Frame, error) {
 	fields := make([]*frame.Field, len(names))
 	for i, name := range names {
 		fld, err := frame.NewField(name, types[i])
@@ -488,39 +499,52 @@ func fill(ctx context.Context, names []string, types []frame.FieldType, rows [][
 	if err != nil {
 		return nil, err
 	}
-	p := &partial{b: b, types: types, failed: make([]int, len(names)), row: make([]any, len(names)), bad: make([]bool, len(names))}
-	for n, rec := range rows {
+	rows := 0
+	if len(cols) > 0 {
+		rows = len(cols[0].vals)
+	}
+	row := make([]any, len(names))
+	for n := range rows {
 		if n%cancelCheckEvery == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-		if ok, err := p.append(rec); err != nil || !ok {
-			return p, err
+		for i := range cols {
+			row[i] = cols[i].vals[n]
+		}
+		if err := b.AppendRow(row...); errors.Is(err, frame.ErrLimitReached) {
+			break
+		} else if err != nil {
+			return nil, err
 		}
 	}
-	return p, nil
-}
-
-// append converts and adds one record. It reports false when a limit stopped the build.
-// Conversion failures are counted only for rows the frame keeps.
-func (p *partial) append(rec []string) (bool, error) {
-	for i, cell := range rec {
-		v, ok := convert(p.types[i], cell)
-		p.bad[i] = !ok
-		p.row[i] = v
-	}
-	if err := p.b.AppendRow(p.row...); errors.Is(err, frame.ErrLimitReached) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	for i, f := range p.bad {
-		if f {
-			p.failed[i]++
+	fr := b.Frame()
+	switch {
+	case stopped && !fr.Meta.Truncated:
+		fr.Meta.Truncated = true
+		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Result truncated at the byte limit of %d bytes.", lim.MaxBytes))
+	case !stopped && len(records) > sampled:
+		for i, cell := range records[sampled] {
+			row[i], _ = convert(types[i], cell)
+		}
+		if err := b.AppendRow(row...); err != nil && !errors.Is(err, frame.ErrLimitReached) {
+			return nil, err
 		}
 	}
-	return true, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	for i, c := range cols {
+		if c.failed > 0 {
+			noun := "values"
+			if c.failed == 1 {
+				noun = "value"
+			}
+			fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("%d %s in field %q could not be read as %s and were set to null.", c.failed, noun, names[i], types[i]))
+		}
+	}
+	return fr, nil
 }
 
 // inferrer tracks, per column, the types every non-empty cell seen so far parses as.
