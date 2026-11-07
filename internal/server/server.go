@@ -65,6 +65,9 @@ func New(opts Options) (*Server, error) {
 		opts.Plugins.Freeze()
 	}
 	opts.Health.Register("plugins", opts.Plugins.ReadinessCheck)
+	// /readyz is exempt from rate limiting, so probe floods are absorbed by sharing and
+	// briefly reusing one evaluation instead (FR-002 AC5).
+	opts.Health.SetCacheTTL(opts.Config.ReadinessCacheTTL.Std())
 	s := &Server{cfg: opts.Config, log: opts.Logger, health: opts.Health, build: opts.Build, plugins: opts.Plugins}
 
 	mux := http.NewServeMux()

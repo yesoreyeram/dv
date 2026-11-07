@@ -391,7 +391,11 @@ func TestPluginCatalog(t *testing.T) {
 	if err := reg.RegisterFormat(plugintest.NewFormat("csv")); err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(Options{Config: config.Default(), Plugins: reg})
+	// Readiness results are reused for ReadinessCacheTTL (FR-002 AC5); disable reuse so the
+	// flip on Freeze is visible immediately rather than within one TTL.
+	cfg := config.Default()
+	cfg.ReadinessCacheTTL = 0
+	s, err := New(Options{Config: cfg, Plugins: reg})
 	if err != nil {
 		t.Fatal(err)
 	}

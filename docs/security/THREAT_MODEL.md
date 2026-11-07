@@ -28,7 +28,7 @@ credentials and data-source secrets.
 | STRIDE | Threat | Mitigation | Verified by |
 | --- | --- | --- | --- |
 | S | Spoofed `X-Forwarded-For` to evade rate limits | Client identity = TCP peer address; forwarded headers are ignored until an explicit trusted-proxy list is configured (backlog B-021). | `ratelimit_test.go` |
-| T | XSS / script injection into the SPA | Strict CSP: `default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`; React escapes text; OpenAPI rendered as text only. | `security.feature`, `headers_test.go` |
+| T | XSS / script injection into the SPA | Strict CSP: `default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`; React escapes text; OpenAPI rendered as text only. | `security.feature`, `headers_test.go`, `features/ui/csp.feature` (zero violations in a real browser; injected inline script blocked) |
 | T | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'` | `security.feature` |
 | T | MIME sniffing of API responses | `X-Content-Type-Options: nosniff`, explicit `Content-Type` | `security.feature` |
 | R | Actions not attributable | Request ID on every request and access log; audit log lands with authN (M3) | `requestid_test.go` |
@@ -36,11 +36,12 @@ credentials and data-source secrets.
 | I | Error messages leak internals (stack traces, IPs, DSNs) | Panic recovery returns generic JSON `500`; readiness reduces check errors to `pass`/`fail`; errors logged server-side only | `health.feature`, `recover_test.go` |
 | I | Version disclosure aids attackers | `/healthz` and `/readyz` reveal no version; `/api/v1/version` will require authentication once M3 lands (backlog B-020) | Review |
 | I | Referrer leakage of dashboard URLs | `Referrer-Policy: no-referrer` | `security.feature` |
-| D | Request flooding | Per-client token bucket (`429` + `Retry-After`), bounded client table with idle eviction | `security.feature`, `ratelimit_test.go` |
+| D | Request flooding | Per-client token bucket (`429` + `Retry-After`), bounded client table with idle eviction only after a bucket would have fully refilled (TTL = max(3 min, burst/rps)), so eviction never grants an early fresh burst | `security.feature`, `httpx_test.go` |
 | D | Filling the limiter table (many IPv6 addresses from one /64, or many hosts) to lock out new clients and make every newcomer pay an O(table) sweep under the global lock | IPv6 keyed by /64; full table → newcomers share one overflow bucket instead of a hard deny; full-table sweep throttled to once per second | `ratelimit_test.go` (`TestRateLimiterFullTableIsNotOSquared`, `TestClientKey`), `security.feature` |
 | T | Mis-set `DV_RATE_LIMIT_RPS=NaN`/`Inf` silently disabling the limiter | Non-finite and out-of-range rate/burst rejected at start-up | `config_test.go` |
 | D | Slowloris / oversized headers / bodies | `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `MaxHeaderBytes`; `http.MaxBytesReader` on bodies | `config_test.go`, `server_test.go` |
 | D | Hung readiness dependency stalls probes | Each check runs with a timeout derived from the request context | `health_test.go` |
+| D | Probe flood multiplies dependency load or piles up goroutines stuck in a hung check | Concurrent probes share one evaluation (singleflight) and reuse it for `DV_READINESS_CACHE_TTL` (1 s); a check still running from an earlier probe is not restarted and reports `fail`, so at most one stuck goroutine exists per check (FR-002 AC5/AC6, B-043) | `health_test.go`, `health.feature` |
 | E | Path traversal through static file serving | Static assets served via `http.FS(os.DirFS(root))` / `os.Root` semantics; `..` rejected; SPA fallback only for extension-less paths | `static_test.go` |
 | E | Container breakout impact | Distroless non-root image, read-only root FS, `cap_drop: [ALL]`, `no-new-privileges` | `Dockerfile`, `docker-compose.yml` |
 

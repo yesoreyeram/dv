@@ -440,3 +440,41 @@ func TestClientIP(t *testing.T) {
 		t.Fatal(ClientIP(req))
 	}
 }
+
+// TestRateLimiterEvictionDoesNotRefillEarly guards against idle-eviction resetting a
+// bucket before it would have refilled (Codex review finding on PR #2).
+func TestRateLimiterEvictionDoesNotRefillEarly(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	l := NewRateLimiter(0.01, 40, 10, clk.Now)
+	for i := range 40 {
+		if ok, _ := l.Allow("a"); !ok {
+			t.Fatalf("burst request %d denied", i)
+		}
+	}
+	clk.Add(181 * time.Second) // past the 3-minute floor, far short of the 4000s refill
+	allowed := 0
+	for range 40 {
+		if ok, _ := l.Allow("a"); ok {
+			allowed++
+		}
+	}
+	if allowed > 1 {
+		t.Fatalf("got %d tokens after 181s at 0.01 rps; eviction reset the bucket", allowed)
+	}
+	clk.Add(4001 * time.Second)
+	if ok, _ := l.Allow("b"); !ok || l.Len() != 1 {
+		t.Fatalf("fully refilled idle bucket should be evictable: len=%d", l.Len())
+	}
+}
+
+func TestIdleTTLFor(t *testing.T) {
+	if got := idleTTLFor(20, 40); got != minIdleTTL {
+		t.Errorf("fast refill should use the floor, got %v", got)
+	}
+	if got := idleTTLFor(0.01, 40); got != 4000*time.Second {
+		t.Errorf("slow refill = %v, want 4000s", got)
+	}
+	if got := idleTTLFor(0, 40); got != minIdleTTL {
+		t.Errorf("rps 0 = %v", got)
+	}
+}
