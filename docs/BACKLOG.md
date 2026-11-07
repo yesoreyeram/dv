@@ -10,8 +10,8 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-003 | React shell: layout, navigation, theme, status + API reference pages, Vitest, playwright-bdd + axe | M1 | FR-005…007, NFR-A11Y-001/002/003 | In review |
 | B-004 | CI workflow (Go lint/test/BDD, web lint/type/test/build, e2e, govulncheck, pnpm audit, gitleaks, image build), Dependabot | M0 | NFR-SEC-010/014, NFR-MAINT-001…003 | In review |
 | B-005 | Dockerfile (distroless, non-root) + docker-compose with hardening | M0 | NFR-SEC-011, NFR-PORT-003 | In review (image build verified only in CI) |
-| B-010 | `internal/frame`: data-frame model, JSON wire encoding, limits | M2 | FR-010, NFR-PERF-003 | Todo |
-| B-011 | Plugin registry + `Source`/`Format` interfaces (ADR-0002) with readiness check | M2 | FR-010 | Todo |
+| B-010 | `internal/frame`: data-frame model, JSON wire encoding, limits (+ TS decoder) | M2 | FR-010, NFR-PERF-003 | In review (PR #3) |
+| B-011 | Plugin registry + `Source`/`Format` interfaces (ADR-0002) with readiness check, `GET /api/v1/plugins`, Data sources catalogue page | M2 | FR-015, NFR-SEC-002 | In review (PR #3) |
 | B-012 | CSV/TSV format + file source rooted with `os.Root` | M2 | FR-011, NFR-SEC-006 | Todo |
 | B-013 | JSON format | M2 | FR-012 | Todo |
 | B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON) | M2 | FR-010, NFR-SEC-009 | Todo |
@@ -31,3 +31,5 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
 | B-035 | Triage moderate `minimatch` advisory (dev-only, via typescript-eslint in e2e) | M0 | NFR-SEC-010 | Todo |
 | B-036 | E2E scenario asserting zero CSP violations in the browser console | M1 | NFR-SEC-007 | Todo |
+| B-037 | Host-provided `os.Root` / policy HTTP client handed to plugins (ADR-0002) — lands with the first plugin that needs it (B-012) | M2 | NFR-SEC-005/006 | Todo |
+| B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |

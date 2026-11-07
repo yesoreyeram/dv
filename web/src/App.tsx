@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from "react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { t } from "@/i18n/messages";
 import { ApiReferencePage } from "@/pages/ApiReferencePage";
+import { DataSourcesPage } from "@/pages/DataSourcesPage";
 import { HomePage } from "@/pages/HomePage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PlannedPage } from "@/pages/PlannedPage";
@@ -49,16 +50,7 @@ export function App({ queryClient }: { queryClient: QueryClient }) {
               />
             }
           />
-          <Route
-            path="data-sources"
-            element={
-              <PlannedPage
-                title={t("dataSources.title")}
-                body={t("dataSources.body")}
-                milestone="M2"
-              />
-            }
-          />
+          <Route path="data-sources" element={<DataSourcesPage />} />
           <Route path="api-reference" element={<ApiReferencePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

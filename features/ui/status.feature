@@ -1,4 +1,4 @@
-@FR-006 @FR-007
+@FR-006 @FR-007 @FR-015
 Feature: System status and API reference
   As an operator
   I want to see the health of the server and its API from the UI
@@ -14,3 +14,4 @@ Feature: System status and API reference
     Then I see the endpoint "GET" "/healthz"
     And I see the endpoint "GET" "/readyz"
     And I see the endpoint "GET" "/api/v1/version"
+    And I see the endpoint "GET" "/api/v1/plugins"

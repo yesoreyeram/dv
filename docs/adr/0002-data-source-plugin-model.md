@@ -45,3 +45,14 @@ type Format interface {
 
 - Adding a source = implement the interface + register + BDD scenarios.
 - Out-of-process plugins (gRPC) can be added later behind the same interface.
+
+## Implementation notes (2026-11-07, FR-015)
+
+- Package `internal/plugin`. `Health` takes the instance `SourceConfig`
+  (`Health(ctx, cfg)`), because plugin types are stateless and health is per instance.
+- The registry is frozen after start-up (`Freeze`); the `plugins` readiness check fails
+  until then, and later `Register*` calls return `ErrFrozen`.
+- `SecureJSONData` is the `SecureValues` type: JSON shows only `{key: true}`
+  (`secureJsonFields`), `fmt` and `slog` print `[REDACTED]`.
+- The config schema in metadata is deferred to B-038; the host-provided `os.Root` and
+  HTTP client arrive with the first plugin that needs them (B-037).

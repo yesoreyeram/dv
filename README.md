@@ -39,6 +39,7 @@ Or with containers: `make compose-up` (http://127.0.0.1:8080).
 curl -s localhost:8080/healthz         # {"status":"ok"}
 curl -s localhost:8080/readyz          # {"status":"ready","checks":{}}
 curl -s localhost:8080/api/v1/version  # build info
+curl -s localhost:8080/api/v1/plugins  # compiled-in data-source and format plugins
 curl -s localhost:8080/api/openapi.json
 ```
 
