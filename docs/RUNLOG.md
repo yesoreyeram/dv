@@ -62,4 +62,9 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Evidence: the reviewer's input (`v\n1\n2\nx\n`, `MaxBytes: 60`) returned 1 `string` row before the fix and returns 2 `number` rows, truncated, after it. `go test -race` is green for all non-BDD packages; csvformat coverage is 97.6 %. golangci-lint reports 0 issues. `make build` and `make run` work, and `/readyz` is ready. Screenshots: `docs/screenshots/feat-csv-file-source/run6-*`.
 - Not verified locally: godog (this sandbox cannot download `github.com/cucumber/godog`, because proxy.golang.org and gopkg.in are blocked), govulncheck, gitleaks and the Docker build. All of these are left to CI. No dependency changes.
 - Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 provisioned instances + B-040 error mapping, then B-013 JSON.
+- Follow-up in the same run (~17:00 UTC): CI was green on all 7 checks at 293c858, including the new godog scenario. Codex then raised a P2 on the new `build`: each type change rebuilt and re-converted the whole retained table, so columns changing type on different rows cost quadratic work in column count. I confirmed it: a 182 KiB file with 128 columns that change type on staggered rows allocated 924 MiB and took 827 ms.
+  - Fix: `build` now keeps column-wise values and per-column byte totals, and re-converts only the column whose type changed. Each cell is converted at most five times.
+  - `frame.EstimateValueSize` is exported so the plan uses exactly the builder's byte accounting; `TestEstimateValueSizeMatchesBuilder` pins this.
+  - The same input now allocates 22 MiB and takes 40 ms. `TestStaggeredTypeChangesStayLinear` (128 MiB cap) fails on the previous code and passes now.
+  - FR-011 AC7 and threat-model F-03 were updated.
 
