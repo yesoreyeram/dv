@@ -65,13 +65,16 @@ type world struct {
 	baseURL   string          // set once the TCP server is listening
 	stopServe func() error    // shuts the TCP server down after a scenario
 	probes    loadtest.Result // result of the last probe load
+
+	lastTook time.Duration           // how long the last single GET took
+	failing  map[string]*atomic.Bool // counted checks switched to failing mid-scenario
 }
 
 func newWorld() *world {
 	cfg := config.Default()
 	return &world{
 		cfg: cfg, build: buildinfo.Get(), health: health.New(cfg.ReadinessCheckTimeout.Std(), nil),
-		checkCalls: map[string]*atomic.Int32{},
+		checkCalls: map[string]*atomic.Int32{}, failing: map[string]*atomic.Bool{},
 	}
 }
 
@@ -173,6 +176,16 @@ func initializeScenario(sc *godog.ScenarioContext) {
 		w.cfg.RateLimitRPS, w.cfg.RateLimitBurst = float64(rps), burst
 		return nil
 	})
+	sc.Step(`^the dv server is running with a readiness cache TTL of (\d+) ms$`, func(ms int) error {
+		w.cfg.ReadinessCacheTTL = config.Duration(time.Duration(ms) * time.Millisecond)
+		return nil
+	})
+	sc.Step(`^the dv server is running with a readiness cache TTL of (\d+) ms and a check timeout of (\d+) ms$`, func(ttl, timeout int) error {
+		w.cfg.ReadinessCacheTTL = config.Duration(time.Duration(ttl) * time.Millisecond)
+		w.cfg.ReadinessCheckTimeout = config.Duration(time.Duration(timeout) * time.Millisecond)
+		w.health = health.New(w.cfg.ReadinessCheckTimeout.Std(), nil)
+		return nil
+	})
 	sc.Step(`^the dv server is running on a TCP listener$`, func() error { w.tcp = true; return nil })
 	sc.Step(`^the dv server is running with a route that panics$`, func() error { w.withPanic = true; return nil })
 	sc.Step(`^the readiness check "([^"]*)" passes$`, func(name string) error {
@@ -208,13 +221,55 @@ func initializeScenario(sc *godog.ScenarioContext) {
 		return nil
 	})
 	sc.Step(`^the readiness check "([^"]*)" passes and counts its calls$`, func(name string) error {
-		n := &atomic.Int32{}
-		w.checkCalls[name] = n
+		n, down := &atomic.Int32{}, &atomic.Bool{}
+		w.checkCalls[name], w.failing[name] = n, down
 		w.health.Register(name, func(context.Context) error {
 			n.Add(1)
 			time.Sleep(20 * time.Millisecond) // long enough for a burst of probes to overlap
+			if down.Load() {
+				return errors.New("dependency down")
+			}
 			return nil
 		})
+		return nil
+	})
+	sc.Step(`^the readiness check "([^"]*)" starts failing$`, func(name string) error {
+		down, ok := w.failing[name]
+		if !ok {
+			return fmt.Errorf("readiness check %q cannot be switched to failing", name)
+		}
+		down.Store(true)
+		return nil
+	})
+	sc.Step(`^a first probe of "([^"]*)" has completed$`, func(path string) error {
+		rr, err := w.get(path, nil)
+		if err == nil && rr.Code != http.StatusOK {
+			err = fmt.Errorf("first probe status = %d", rr.Code)
+		}
+		return err
+	})
+	sc.Step(`^I wait (\d+) ms$`, func(ms int) error {
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+		return nil
+	})
+	sc.Step(`^the last request should have taken less than (\d+) ms$`, func(ms int) error {
+		if limit := time.Duration(ms) * time.Millisecond; w.lastTook >= limit {
+			return fmt.Errorf("last request took %s, want < %s", w.lastTook, limit)
+		}
+		return nil
+	})
+	sc.Step(`^within (\d+) seconds? the readiness check "([^"]*)" should have been started (\d+) times?$`, func(secs int, name string, want int) error {
+		n, ok := w.checkCalls[name]
+		if !ok {
+			return fmt.Errorf("readiness check %q is not counted", name)
+		}
+		deadline := time.Now().Add(time.Duration(secs) * time.Second)
+		for int(n.Load()) < want && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if got := int(n.Load()); got != want {
+			return fmt.Errorf("readiness check %q started %d times, want %d", name, got, want)
+		}
 		return nil
 	})
 	sc.Step(`^the readiness check "([^"]*)" takes (\d+) ms and counts its calls$`, func(name string, ms int) error {
@@ -318,8 +373,11 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	}
 	sc.Step(`^the readiness check "([^"]*)" should have run at most (\d+) times?$`, func(name string, max int) error {
 		got, err := checkCount(name)
-		if err == nil && got > max {
-			err = fmt.Errorf("readiness check %q ran %d times, want at most %d", name, got, max)
+		if err == nil && (got > max || got < 1) {
+			// At least once: a count of 0 means the counted check never ran (e.g. it was
+			// replaced by a server-registered check of the same name), which would make
+			// the bound pass vacuously.
+			err = fmt.Errorf("readiness check %q ran %d times, want 1..%d", name, got, max)
 		}
 		return err
 	})
@@ -333,7 +391,12 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the server has started shutting down$`, func() error { w.health.SetDraining(); return nil })
 
 	sc.Step(`^I send a GET request to "([^"]*)"$`, func(path string) (err error) {
+		if _, err = w.server(); err != nil {
+			return err
+		}
+		start := time.Now()
 		w.resp, err = w.get(path, nil)
+		w.lastTook = time.Since(start)
 		return err
 	})
 	sc.Step(`^I send a GET request to "([^"]*)" with header "([^"]*)" set to "([^"]*)"$`, func(path, k, v string) (err error) {

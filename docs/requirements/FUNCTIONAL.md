@@ -72,6 +72,13 @@ readiness checks (database, plugin registry, … as they are added).
 - AC6: a check that ignores its context and is still running from an earlier probe is not started
   again; it reports `fail` until it returns. This keeps at most one stuck goroutine per check (e.g.
   `os.Stat` on a hung network mount).
+- AC7: once a result exists, a probe that arrives after the TTL has expired gets the last result
+  immediately and starts one shared background refresh (stale-while-revalidate); it does not wait
+  for the checks. A result is served stale for at most the check timeout beyond the TTL
+  (`DV_READINESS_CACHE_TTL` + `DV_READINESS_CHECK_TIMEOUT`, 3 s by default), which is the longest a
+  refresh can take. Probes wait for the evaluation, as in AC5, when there is no result yet, when the
+  last one is older than that bound, after a check is registered or the TTL changes, and when the TTL
+  is `0`. Draining still applies on the very next probe.
 
 ### FR-003 — Build/version information (M)
 `GET /api/v1/version` returns `{"version","commit","buildDate","goVersion"}` injected at build time.

@@ -37,10 +37,10 @@ Feature: Health probes
   @FR-002
   Scenario: A burst of probes runs each readiness check once
     Given the dv server is running
-    And the readiness check "plugins" passes and counts its calls
+    And the readiness check "database" passes and counts its calls
     When I send 50 concurrent GET requests to "/readyz"
     Then every response status should be 200
-    And the readiness check "plugins" should have run at most 1 time
+    And the readiness check "database" should have run at most 1 time
 
   @FR-002
   Scenario: A stuck readiness check is not started again by later probes
@@ -71,9 +71,42 @@ Feature: Health probes
   @NFR-PERF-001 @FR-002
   Scenario: A slow readiness check runs once per cache window under probe load
     Given the dv server is running on a TCP listener
-    And the readiness check "plugins" takes 50 ms and counts its calls
+    And the readiness check "database" takes 50 ms and counts its calls
     When I probe "/readyz" at 500 requests per second for 2 seconds on a single core
     Then every probe should return status 200
-    And the readiness check "plugins" should have run at most 3 times
+    And the readiness check "database" should have run at most 3 times
     And the p50 probe latency should be below 10 ms
     And the p99 probe latency should be below 60 ms
+
+  @NFR-PERF-001 @FR-002
+  Scenario: A slow readiness check does not slow probes once a result exists
+    Given the dv server is running on a TCP listener
+    And the readiness check "database" takes 50 ms and counts its calls
+    And a first probe of "/readyz" has completed
+    When I probe "/readyz" at 500 requests per second for 2 seconds on a single core
+    Then every probe should return status 200
+    And the readiness check "database" should have run at most 4 times
+    And the p99 probe latency should be below 10 ms
+
+  @FR-002
+  Scenario: An expired readiness result is served while it refreshes in the background
+    Given the dv server is running with a readiness cache TTL of 50 ms
+    And the readiness check "database" takes 300 ms and counts its calls
+    When I send a GET request to "/readyz"
+    And I wait for the readiness cache to expire
+    And I send a GET request to "/readyz"
+    Then the response status should be 200
+    And the JSON field "checks.database" should be "pass"
+    And the last request should have taken less than 150 ms
+    And within 1 second the readiness check "database" should have been started 2 times
+
+  @FR-002
+  Scenario: A readiness result older than the stale bound is not served
+    Given the dv server is running with a readiness cache TTL of 50 ms and a check timeout of 100 ms
+    And the readiness check "database" passes and counts its calls
+    When I send a GET request to "/readyz"
+    And the readiness check "database" starts failing
+    And I wait 250 ms
+    And I send a GET request to "/readyz"
+    Then the response status should be 503
+    And the JSON field "checks.database" should be "fail"

@@ -57,7 +57,7 @@ Defaults < JSON file (`DV_CONFIG_FILE`) < environment. Invalid configuration fai
 | `DV_READ_HEADER_TIMEOUT`, `DV_READ_TIMEOUT`, `DV_WRITE_TIMEOUT`, `DV_IDLE_TIMEOUT` | `5s`, `30s`, `60s`, `120s` | HTTP server timeouts |
 | `DV_SHUTDOWN_TIMEOUT` | `15s` | Graceful drain window |
 | `DV_READINESS_CHECK_TIMEOUT` | `2s` | Per-check timeout for `/readyz` |
-| `DV_READINESS_CACHE_TTL` | `1s` | How long a `/readyz` result is reused; concurrent probes always share one run. `0` disables reuse, max `1m` |
+| `DV_READINESS_CACHE_TTL` | `1s` | How long a `/readyz` result is reused; concurrent probes always share one run. After it expires, the last result is still served for up to `DV_READINESS_CHECK_TIMEOUT` while one refresh runs in the background. `0` disables reuse, max `1m` |
 | `DV_MAX_HEADER_BYTES` / `DV_MAX_BODY_BYTES` | `65536` / `1048576` | Request size limits |
 | `DV_FILE_ROOTS` | _(empty)_ | Directories the `file` source may read, as `name=/abs/dir,other=/abs/dir2` (JSON: `fileRoots: {"name": "/abs/dir"}`). Opened with `os.Root`; nothing outside them is readable. `make run`/`make dev`/compose expose `deploy/samples` as `samples` |
 | `DV_FILE_MAX_BYTES` | `67108864` | Largest file the `file` source reads (1 KiB – 1 GiB) |

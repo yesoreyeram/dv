@@ -67,27 +67,36 @@ func TestProbeLatencyUnderLoad(t *testing.T) {
 	}
 }
 
-// TestSlowReadinessCheckUnderLoad verifies NFR-PERF-001 AC2 (B-046): with a 50 ms
-// check and the default 1 s cache, the check runs at most once per cache window and
-// only the probes that arrive during a refresh wait for it.
-func TestSlowReadinessCheckUnderLoad(t *testing.T) {
-	const checkTime = 50 * time.Millisecond
+const slowCheckTime = 50 * time.Millisecond
+
+// slowServer serves /readyz over TCP with one readiness check that takes
+// slowCheckTime, and counts how often that check runs.
+func slowServer(t *testing.T) (base string, ttl time.Duration, calls *atomic.Int32) {
+	t.Helper()
 	s := newTestServer(t, nil)
-	ttl := s.cfg.ReadinessCacheTTL.Std()
+	ttl = s.cfg.ReadinessCacheTTL.Std()
 	if ttl != time.Second {
 		t.Fatalf("test assumes the default 1 s readiness cache, got %s", ttl)
 	}
-	var calls atomic.Int32
+	calls = &atomic.Int32{}
 	s.Health().Register("plugins", func(ctx context.Context) error {
 		calls.Add(1)
 		select {
-		case <-time.After(checkTime):
+		case <-time.After(slowCheckTime):
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	})
-	base := serveTCP(t, s)
+	return serveTCP(t, s), ttl, calls
+}
+
+// TestSlowReadinessCheckUnderLoad covers a cold start under load (B-046): with a
+// 50 ms check and the default 1 s cache, the check runs at most once per cache window,
+// and only the probes that arrive before the first result exists wait for it.
+func TestSlowReadinessCheckUnderLoad(t *testing.T) {
+	const checkTime = slowCheckTime
+	base, ttl, calls := slowServer(t)
 	singleCore(t)
 	res := probe(t, base+"/readyz")
 
@@ -100,5 +109,33 @@ func TestSlowReadinessCheckUnderLoad(t *testing.T) {
 	}
 	if p99 := res.Quantile(0.99); p99 >= checkTime+perfP99 {
 		t.Fatalf("p99 = %s, want < %s", p99, checkTime+perfP99)
+	}
+}
+
+// TestSlowReadinessCheckWarmUnderLoad verifies NFR-PERF-001 AC2 (B-047): once one
+// evaluation has completed, refreshes of a 50 ms check run in the background, so no
+// probe waits for it and p99 stays under 10 ms.
+func TestSlowReadinessCheckWarmUnderLoad(t *testing.T) {
+	base, ttl, calls := slowServer(t)
+	warm := loadtest.NewClient(5 * time.Second)
+	resp, err := warm.Get(base + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	warm.CloseIdleConnections()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("warm-up probe returned %d", resp.StatusCode)
+	}
+	singleCore(t)
+	res := probe(t, base+"/readyz")
+
+	// The warm-up run plus at most one refresh per cache window.
+	maxCalls := int32(perfDuration/ttl) + 2
+	if got := calls.Load(); got > maxCalls || got < 2 {
+		t.Fatalf("check ran %d times, want 2..%d", got, maxCalls)
+	}
+	if p99 := res.Quantile(0.99); p99 >= perfP99 {
+		t.Fatalf("p99 = %s, want < %s (%s)", p99, perfP99, res)
 	}
 }
