@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build: web assets -> static Go binary -> distroless non-root runtime.
 
-FROM node:22-alpine AS web
+FROM node:25-alpine AS web
 WORKDIR /src
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
