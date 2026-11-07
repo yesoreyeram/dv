@@ -10,6 +10,10 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       DV_LOG_LEVEL: info
+      # Named file roots for the file source (FR-011); mounted read-only below.
+      DV_FILE_ROOTS: samples=/data/samples
+    volumes:
+      - ./samples:/data/samples:ro
     read_only: true
     cap_drop: [ALL]
     security_opt:

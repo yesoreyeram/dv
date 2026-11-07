@@ -54,5 +54,18 @@ type Format interface {
   until then, and later `Register*` calls return `ErrFrozen`.
 - `SecureJSONData` is the `SecureValues` type: JSON shows only `{key: true}`
   (`secureJsonFields`), `fmt` and `slog` print `[REDACTED]`.
-- The config schema in metadata is deferred to B-038; the host-provided `os.Root` and
-  HTTP client arrive with the first plugin that needs them (B-037).
+- The config schema in metadata is deferred to B-038; the host-provided HTTP client
+  arrives with the first network source (M5).
+
+## Implementation notes (2026-11-07, FR-011)
+
+- Host-provided file access is `internal/fsroot.Roots`: operator-named directories
+  (`fileRoots`) opened once with `os.Root` at start-up. Plugins receive the `Roots` value,
+  never a directory path, and can only call `Open(root, relPath, maxBytes)`, which applies
+  `CleanPath`, regular-file and size checks (NFR-SEC-006). A `file-roots` readiness check
+  detects removed or replaced roots.
+- The `file` source binds an instance to a root through `jsonData.root`; the query body
+  (`path`, `format`, `options`, `fieldTypes`) cannot choose the root. Formats are looked up
+  through the registry (explicit ID or file extension), so new formats (JSON, NDJSON, …)
+  become available to the file source by registering them.
+- Built-ins are registered by `internal/plugins/builtin.Register` before `Freeze`.
