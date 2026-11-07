@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +23,7 @@ import (
 	"github.com/yesoreyeram/dv/internal/config"
 	"github.com/yesoreyeram/dv/internal/health"
 	"github.com/yesoreyeram/dv/internal/httpx"
+	"github.com/yesoreyeram/dv/internal/loadtest"
 	"github.com/yesoreyeram/dv/internal/server"
 )
 
@@ -52,6 +55,11 @@ type world struct {
 
 	checkCalls map[string]*atomic.Int32 // invocations per readiness check
 	release    chan struct{}            // unblocks stuck readiness checks after a scenario
+
+	tcp       bool            // serve over a real loopback listener (NFR-PERF-001)
+	baseURL   string          // set once the TCP server is listening
+	stopServe func() error    // shuts the TCP server down after a scenario
+	probes    loadtest.Result // result of the last probe load
 }
 
 func newWorld() *world {
@@ -103,6 +111,28 @@ func (w *world) getFrom(path, remote string, header map[string]string) (*httptes
 	return rr, nil
 }
 
+// listen starts the server on a loopback TCP listener through the real http.Server.
+func (w *world) listen() (string, error) {
+	if w.baseURL != "" {
+		return w.baseURL, nil
+	}
+	s, err := w.server()
+	if err != nil {
+		return "", err
+	}
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx, ln) }()
+	w.stopServe = func() error { cancel(); return <-done }
+	w.baseURL = "http://" + ln.Addr().String()
+	return w.baseURL, nil
+}
+
 func initializeScenario(sc *godog.ScenarioContext) {
 	w := newWorld()
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -112,6 +142,11 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		if w.release != nil {
 			close(w.release)
+		}
+		if w.stopServe != nil {
+			if err := w.stopServe(); err != nil {
+				return ctx, fmt.Errorf("stopping server: %w", err)
+			}
 		}
 		return ctx, nil
 	})
@@ -125,6 +160,7 @@ func initializeScenario(sc *godog.ScenarioContext) {
 		w.cfg.RateLimitRPS, w.cfg.RateLimitBurst = float64(rps), burst
 		return nil
 	})
+	sc.Step(`^the dv server is running on a TCP listener$`, func() error { w.tcp = true; return nil })
 	sc.Step(`^the dv server is running with a route that panics$`, func() error { w.withPanic = true; return nil })
 	sc.Step(`^the readiness check "([^"]*)" passes$`, func(name string) error {
 		w.health.Register(name, func(context.Context) error { return nil })
@@ -142,6 +178,60 @@ func initializeScenario(sc *godog.ScenarioContext) {
 			time.Sleep(20 * time.Millisecond) // long enough for a burst of probes to overlap
 			return nil
 		})
+		return nil
+	})
+	sc.Step(`^the readiness check "([^"]*)" takes (\d+) ms and counts its calls$`, func(name string, ms int) error {
+		n := &atomic.Int32{}
+		w.checkCalls[name] = n
+		d := time.Duration(ms) * time.Millisecond
+		w.health.Register(name, func(ctx context.Context) error {
+			n.Add(1)
+			select {
+			case <-time.After(d):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+		return nil
+	})
+	sc.Step(`^I probe "([^"]*)" at (\d+) requests per second for (\d+) seconds on a single core$`, func(path string, rps, secs int) error {
+		if !w.tcp {
+			return errors.New("probe load needs the server on a TCP listener")
+		}
+		base, err := w.listen()
+		if err != nil {
+			return err
+		}
+		prev := runtime.GOMAXPROCS(1)
+		defer runtime.GOMAXPROCS(prev)
+		client := loadtest.NewClient(5 * time.Second)
+		defer client.CloseIdleConnections()
+		w.probes, err = loadtest.Run(context.Background(), loadtest.Options{
+			Client: client, URL: base + path, Rate: float64(rps), Duration: time.Duration(secs) * time.Second,
+		})
+		if err == nil && w.probes.Total() != rps*secs {
+			err = fmt.Errorf("issued %d probes, want %d", w.probes.Total(), rps*secs)
+		}
+		return err
+	})
+	sc.Step(`^every probe should return status (\d+)$`, func(code int) error {
+		if w.probes.Errors != 0 {
+			return fmt.Errorf("%d probes failed (%s): %w", w.probes.Errors, w.probes, w.probes.FirstErr)
+		}
+		if w.probes.Status[code] != w.probes.Total() {
+			return fmt.Errorf("not every probe returned %d: %s", code, w.probes)
+		}
+		return nil
+	})
+	sc.Step(`^the p(\d+) probe latency should be below (\d+) ms$`, func(pct, ms int) error {
+		if pct < 1 || pct > 100 {
+			return fmt.Errorf("percentile %d out of range", pct)
+		}
+		got, limit := w.probes.Quantile(float64(pct)/100), time.Duration(ms)*time.Millisecond
+		if got >= limit {
+			return fmt.Errorf("p%d = %s, want < %s (%s)", pct, got, limit, w.probes)
+		}
 		return nil
 	})
 	sc.Step(`^the readiness check "([^"]*)" blocks forever ignoring cancellation$`, func(name string) error {

@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -253,5 +254,49 @@ func TestCallerCancellationReturnsFailWithoutPoisoningOthers(t *testing.T) {
 	close(gate)
 	if rep := r.Check(context.Background()); !rep.Ready {
 		t.Fatalf("second caller got %+v", rep)
+	}
+}
+
+// A check that has returned must never be reported as "still running" by the next
+// evaluation. The running flag used to be cleared after the result was handed back,
+// so back-to-back probes could see a finished check as stuck and flap to 503.
+func TestFinishedCheckIsNeverReportedAsRunning(t *testing.T) {
+	r := New(time.Second, nil)
+	r.SetCacheTTL(0)
+	var calls atomic.Int32
+	r.Register("a", func(context.Context) error { calls.Add(1); return nil })
+	_, entries := r.snapshot()
+	e := entries[0]
+	// Busy goroutines keep every P occupied so the check goroutine is often preempted
+	// right after it hands back its result, which is the window this test guards.
+	stop := make(chan struct{})
+	var busy sync.WaitGroup
+	for range 2 * runtime.GOMAXPROCS(0) {
+		busy.Add(1)
+		go func() {
+			defer busy.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					runtime.Gosched()
+				}
+			}
+		}()
+	}
+	defer func() { close(stop); busy.Wait() }()
+	const n = 20_000
+	for i := range n {
+		if rep := r.Check(context.Background()); !rep.Ready {
+			t.Fatalf("probe %d: %+v after %d check runs", i, rep, calls.Load())
+		}
+		// The result reaching the caller happens after the flag is cleared.
+		if e.running.Load() {
+			t.Fatalf("probe %d: check still marked running after its result was returned", i)
+		}
+	}
+	if got := calls.Load(); got != n {
+		t.Fatalf("check ran %d times, want %d", got, n)
 	}
 }

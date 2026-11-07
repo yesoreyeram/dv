@@ -75,6 +75,8 @@ jobs:
       - run: pnpm -r run typecheck
       - run: pnpm --filter web run test
       - run: pnpm --filter web run build
+      - name: Bundle-size budget (NFR-PERF-004)
+        run: pnpm --filter web run size
       - name: pnpm audit (high+)
         run: pnpm audit --audit-level high
       - uses: actions/upload-artifact@v4

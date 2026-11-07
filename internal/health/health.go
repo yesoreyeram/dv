@@ -211,13 +211,12 @@ func (r *Registry) run(ctx context.Context, name string, e *entry) string {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		defer e.running.Store(false)
-		defer func() {
-			if p := recover(); p != nil {
-				done <- fmt.Errorf("panic: %v", p)
-			}
-		}()
-		done <- e.fn(ctx)
+		err := safeCall(ctx, e.fn)
+		// Clear the flag before handing the result back: once a caller sees the result,
+		// the next evaluation must be free to start the check again. Clearing it after
+		// the send let back-to-back probes see a finished check as stuck (spurious 503).
+		e.running.Store(false)
+		done <- err
 	}()
 	select {
 	case err := <-done:
@@ -230,4 +229,14 @@ func (r *Registry) run(ctx context.Context, name string, e *entry) string {
 		r.log.WarnContext(ctx, "readiness check timed out", "check", name, "error", ctx.Err())
 		return Fail
 	}
+}
+
+// safeCall runs a check, converting a panic into an error.
+func safeCall(ctx context.Context, fn CheckFunc) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("panic: %v", p)
+		}
+	}()
+	return fn(ctx)
 }

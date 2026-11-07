@@ -68,6 +68,9 @@ make lint      # golangci-lint (incl. gosec), go vet, ESLint, tsc --noEmit, Pret
 make test      # go test -race + Vitest with coverage thresholds
 make bdd       # godog (features/api) + playwright-bdd with axe (features/ui)
 make scan      # govulncheck + pnpm audit
+make perf      # probe p99 under 500 rps open-loop load on one core (NFR-PERF-001)
+make bench     # probe benchmarks
+make size      # initial JS/CSS gzip budget (NFR-PERF-004)
 make help      # everything else
 ```
 
