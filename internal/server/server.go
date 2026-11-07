@@ -16,6 +16,7 @@ import (
 	"github.com/yesoreyeram/dv/internal/config"
 	"github.com/yesoreyeram/dv/internal/health"
 	"github.com/yesoreyeram/dv/internal/httpx"
+	"github.com/yesoreyeram/dv/internal/plugin"
 )
 
 // Options configures a Server.
@@ -24,6 +25,9 @@ type Options struct {
 	Logger *slog.Logger
 	Health *health.Registry
 	Build  buildinfo.Info
+	// Plugins is the compiled-in plugin registry. When nil an empty, frozen registry is
+	// used. The registry's readiness check is registered as "plugins" (FR-015 AC3).
+	Plugins *plugin.Registry
 	// ExtraRoutes lets tests register additional routes behind the full middleware chain.
 	ExtraRoutes func(mux *http.ServeMux)
 }
@@ -34,6 +38,7 @@ type Server struct {
 	log     *slog.Logger
 	health  *health.Registry
 	build   buildinfo.Info
+	plugins *plugin.Registry
 	handler http.Handler
 }
 
@@ -55,7 +60,12 @@ func New(opts Options) (*Server, error) {
 	if opts.Health == nil {
 		opts.Health = health.New(opts.Config.ReadinessCheckTimeout.Std(), opts.Logger)
 	}
-	s := &Server{cfg: opts.Config, log: opts.Logger, health: opts.Health, build: opts.Build}
+	if opts.Plugins == nil {
+		opts.Plugins = plugin.NewRegistry()
+		opts.Plugins.Freeze()
+	}
+	opts.Health.Register("plugins", opts.Plugins.ReadinessCheck)
+	s := &Server{cfg: opts.Config, log: opts.Logger, health: opts.Health, build: opts.Build, plugins: opts.Plugins}
 
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -104,6 +114,7 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/healthz", s.liveness},
 		{http.MethodGet, "/readyz", s.readiness},
 		{http.MethodGet, "/api/v1/version", s.version},
+		{http.MethodGet, "/api/v1/plugins", s.pluginCatalog},
 		{http.MethodGet, "/api/openapi.json", s.openapi},
 	}
 }
@@ -129,6 +140,12 @@ func (s *Server) readiness(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, s.build)
+}
+
+// pluginCatalog lists the registered plugin types (FR-015 AC4). Only static public
+// metadata is returned. It will require authentication once M3 lands (B-020).
+func (s *Server) pluginCatalog(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, s.plugins.Catalog())
 }
 
 func (s *Server) openapi(w http.ResponseWriter, _ *http.Request) {

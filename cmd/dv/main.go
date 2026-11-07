@@ -13,6 +13,7 @@ import (
 	"github.com/yesoreyeram/dv/internal/buildinfo"
 	"github.com/yesoreyeram/dv/internal/config"
 	"github.com/yesoreyeram/dv/internal/httpx"
+	"github.com/yesoreyeram/dv/internal/plugin"
 	"github.com/yesoreyeram/dv/internal/server"
 )
 
@@ -46,7 +47,11 @@ func run(ctx context.Context, args []string, src config.Source, stdout, stderr i
 	}
 	log := newLogger(cfg, stderr)
 	slog.SetDefault(log)
-	srv, err := server.New(server.Options{Config: cfg, Logger: log, Build: buildinfo.Get()})
+	// Compiled-in plugins are registered here before the registry is frozen (ADR-0002).
+	// The first ones (CSV/TSV and JSON file sources) arrive with B-012/B-013.
+	plugins := plugin.NewRegistry()
+	plugins.Freeze()
+	srv, err := server.New(server.Options{Config: cfg, Logger: log, Build: buildinfo.Get(), Plugins: plugins})
 	if err != nil {
 		return err
 	}

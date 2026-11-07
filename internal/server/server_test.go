@@ -18,6 +18,8 @@ import (
 	"github.com/yesoreyeram/dv/internal/buildinfo"
 	"github.com/yesoreyeram/dv/internal/config"
 	"github.com/yesoreyeram/dv/internal/health"
+	"github.com/yesoreyeram/dv/internal/plugin"
+	"github.com/yesoreyeram/dv/internal/plugin/plugintest"
 )
 
 func newTestServer(t *testing.T, mutate func(*config.Config)) *Server {
@@ -376,4 +378,53 @@ func TestNewDefaults(t *testing.T) {
 		t.Fatal("defaults not applied")
 	}
 	_ = health.Pass
+}
+
+func TestPluginCatalog(t *testing.T) {
+	reg := plugin.NewRegistry()
+	if err := reg.RegisterSource(plugintest.NewSource("zeta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterSource(plugintest.NewSource("alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterFormat(plugintest.NewFormat("csv")); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Options{Config: config.Default(), Plugins: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not ready until registration is complete.
+	rr := do(t, s.Handler(), http.MethodGet, "/readyz")
+	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), `"plugins":"fail"`) {
+		t.Fatalf("readyz before freeze: %d %s", rr.Code, rr.Body.String())
+	}
+	reg.Freeze()
+	if rr = do(t, s.Handler(), http.MethodGet, "/readyz"); rr.Code != http.StatusOK {
+		t.Fatalf("readyz after freeze: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = do(t, s.Handler(), http.MethodGet, "/api/v1/plugins")
+	if rr.Code != 200 || rr.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("plugins: %d", rr.Code)
+	}
+	var c plugin.Catalog
+	if err := json.Unmarshal(rr.Body.Bytes(), &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Sources) != 2 || c.Sources[0].ID != "alpha" || c.Formats[0].ID != "csv" {
+		t.Fatalf("catalog: %+v", c)
+	}
+}
+
+func TestPluginCatalogDefaultsToEmptyFrozenRegistry(t *testing.T) {
+	s := newTestServer(t, nil)
+	rr := do(t, s.Handler(), http.MethodGet, "/api/v1/plugins")
+	if strings.TrimSpace(rr.Body.String()) != `{"sources":[],"formats":[]}` {
+		t.Fatalf("got %s", rr.Body.String())
+	}
+	if rr = do(t, s.Handler(), http.MethodGet, "/readyz"); rr.Code != 200 || !strings.Contains(rr.Body.String(), `"plugins":"pass"`) {
+		t.Fatalf("readyz: %d %s", rr.Code, rr.Body.String())
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/yesoreyeram/dv/internal/config"
 	"github.com/yesoreyeram/dv/internal/health"
 	"github.com/yesoreyeram/dv/internal/httpx"
+	"github.com/yesoreyeram/dv/internal/plugin"
+	"github.com/yesoreyeram/dv/internal/plugin/plugintest"
 	"github.com/yesoreyeram/dv/internal/server"
 )
 
@@ -42,6 +45,8 @@ type world struct {
 	build     buildinfo.Info
 	health    *health.Registry
 	withPanic bool
+	plugins   *plugin.Registry
+	regErr    error
 	srv       *server.Server
 
 	resp      *httptest.ResponseRecorder
@@ -57,7 +62,7 @@ func (w *world) server() (*server.Server, error) {
 	if w.srv != nil {
 		return w.srv, nil
 	}
-	opts := server.Options{Config: w.cfg, Build: w.build, Health: w.health}
+	opts := server.Options{Config: w.cfg, Build: w.build, Health: w.health, Plugins: w.plugins}
 	if w.withPanic {
 		opts.ExtraRoutes = func(mux *http.ServeMux) {
 			mux.HandleFunc("GET /api/v1/test/panic", func(http.ResponseWriter, *http.Request) {
@@ -71,6 +76,14 @@ func (w *world) server() (*server.Server, error) {
 	}
 	w.srv = s
 	return s, nil
+}
+
+// registry returns the scenario's plugin registry, creating an unfrozen one on first use.
+func (w *world) registry() *plugin.Registry {
+	if w.plugins == nil {
+		w.plugins = plugin.NewRegistry()
+	}
+	return w.plugins
 }
 
 func (w *world) get(path string, header map[string]string) (*httptest.ResponseRecorder, error) {
@@ -110,6 +123,30 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^the readiness check "([^"]*)" fails with "([^"]*)"$`, func(name, msg string) error {
 		w.health.Register(name, func(context.Context) error { return errors.New(msg) })
+		return nil
+	})
+	sc.Step(`^the plugin registry contains the source "([^"]*)" and the source "([^"]*)"$`, func(a, b string) error {
+		if err := w.registry().RegisterSource(plugintest.NewSource(a)); err != nil {
+			return err
+		}
+		return w.registry().RegisterSource(plugintest.NewSource(b))
+	})
+	sc.Step(`^the plugin registry contains the source "([^"]*)"$`, func(id string) error {
+		return w.registry().RegisterSource(plugintest.NewSource(id))
+	})
+	sc.Step(`^the plugin registry contains the format "([^"]*)"$`, func(id string) error {
+		return w.registry().RegisterFormat(plugintest.NewFormat(id))
+	})
+	sc.Step(`^the plugin registry is frozen$`, func() error { w.registry().Freeze(); return nil })
+	sc.Step(`^the plugin registry is not frozen$`, func() error { w.registry(); return nil })
+	sc.Step(`^a source "([^"]*)" is registered$`, func(id string) error {
+		w.regErr = w.registry().RegisterSource(plugintest.NewSource(id))
+		return nil
+	})
+	sc.Step(`^the registration fails$`, func() error {
+		if w.regErr == nil {
+			return errors.New("registration succeeded, want failure")
+		}
 		return nil
 	})
 	sc.Step(`^the server has started shutting down$`, func() error { w.health.SetDraining(); return nil })
@@ -157,6 +194,16 @@ func initializeScenario(sc *godog.ScenarioContext) {
 		}
 		if !strings.HasPrefix(got, prefix) {
 			return fmt.Errorf("%s = %q, want prefix %q", field, got, prefix)
+		}
+		return nil
+	})
+	sc.Step(`^the JSON field "([^"]*)" should be an empty list$`, func(field string) error {
+		v, err := jsonLookup(w.resp.Body.Bytes(), field)
+		if err != nil {
+			return err
+		}
+		if l, ok := v.([]any); !ok || len(l) != 0 {
+			return fmt.Errorf("%s = %#v, want []", field, v)
 		}
 		return nil
 	})
@@ -218,27 +265,42 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	})
 }
 
-// jsonField resolves a dotted path ("error.code") in a JSON object and returns its
-// string form.
-func jsonField(body []byte, path string) (string, error) {
+// jsonLookup resolves a dotted path ("error.code", "sources.0.id") in a JSON document.
+// Numeric segments index into arrays.
+func jsonLookup(body []byte, path string) (any, error) {
 	var v any
 	if err := json.Unmarshal(body, &v); err != nil {
-		return "", fmt.Errorf("body is not JSON: %w (%s)", err, body)
+		return nil, fmt.Errorf("body is not JSON: %w (%s)", err, body)
 	}
 	for _, part := range strings.Split(path, ".") {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return "", fmt.Errorf("%s: not an object at %q", path, part)
-		}
-		if v, ok = m[part]; !ok {
-			return "", fmt.Errorf("%s: field %q missing in %s", path, part, body)
+		switch node := v.(type) {
+		case map[string]any:
+			var ok bool
+			if v, ok = node[part]; !ok {
+				return nil, fmt.Errorf("%s: field %q missing in %s", path, part, body)
+			}
+		case []any:
+			i, err := strconv.Atoi(part)
+			if err != nil || i < 0 || i >= len(node) {
+				return nil, fmt.Errorf("%s: index %q out of range in %s", path, part, body)
+			}
+			v = node[i]
+		default:
+			return nil, fmt.Errorf("%s: cannot descend into %q", path, part)
 		}
 	}
-	switch t := v.(type) {
-	case string:
+	return v, nil
+}
+
+// jsonField resolves a dotted path and returns its string form.
+func jsonField(body []byte, path string) (string, error) {
+	v, err := jsonLookup(body, path)
+	if err != nil {
+		return "", err
+	}
+	if t, ok := v.(string); ok {
 		return t, nil
-	default:
-		b, _ := json.Marshal(t)
-		return string(b), nil
 	}
+	b, _ := json.Marshal(v)
+	return string(b), nil
 }
