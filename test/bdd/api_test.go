@@ -87,11 +87,18 @@ func (w *world) registry() *plugin.Registry {
 }
 
 func (w *world) get(path string, header map[string]string) (*httptest.ResponseRecorder, error) {
+	return w.getFrom(path, "", header)
+}
+
+func (w *world) getFrom(path, remote string, header map[string]string) (*httptest.ResponseRecorder, error) {
 	s, err := w.server()
 	if err != nil {
 		return nil, err
 	}
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if remote != "" {
+		req.RemoteAddr = remote
+	}
 	for k, v := range header {
 		req.Header.Set(k, v)
 	}
@@ -157,6 +164,10 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^I send a GET request to "([^"]*)" with header "([^"]*)" set to "([^"]*)"$`, func(path, k, v string) (err error) {
 		w.resp, err = w.get(path, map[string]string{k: v})
+		return err
+	})
+	sc.Step(`^I send a GET request to "([^"]*)" from peer address "([^"]*)"$`, func(path, remote string) (err error) {
+		w.resp, err = w.getFrom(path, remote, nil)
 		return err
 	})
 	sc.Step(`^I send (\d+) GET requests to "([^"]*)" in quick succession$`, func(n int, path string) error {
