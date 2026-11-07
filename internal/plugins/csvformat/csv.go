@@ -157,15 +157,30 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 	}
 	if byteStop && !fr.Meta.Truncated {
 		fr.Meta.Truncated = true
-		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Result truncated at the byte limit of %d bytes.", opts.Limits.MaxBytes))
+		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Input truncated: the raw records exceeded the read buffer of %d bytes (%d× the byte limit of %d bytes).", rawBufferFactor*opts.Limits.MaxBytes, rawBufferFactor, opts.Limits.MaxBytes))
 	}
 	return []*frame.Frame{fr}, nil
 }
 
+// rawBufferFactor sizes the guard on raw records held for inference, as a multiple of
+// the byte limit. The byte limit itself is the result budget and is applied by build on
+// converted values (FR-011 AC8); this guard only bounds the memory of the raw strings,
+// which can cost more than their converted values (a 19-digit integer is 35 bytes of text
+// but 24 bytes as an int64). Realistic numbers, times and bools stay under 2x, so the
+// result budget decides which rows are kept; only unusually verbose text trips the guard.
+const rawBufferFactor = 2
+
 // read returns the field names and up to MaxRows+1 records (the extra one lets the
-// builder detect truncation). byteStop reports that reading stopped at the byte limit.
+// builder detect truncation). byteStop reports that reading stopped at the raw-record
+// guard (rawBufferFactor x MaxBytes).
 func read(ctx context.Context, rr recordReader, header bool, lim frame.Limits) (names []string, records [][]string, byteStop bool, err error) {
 	var bytesRead int64
+	rawBudget := lim.MaxBytes
+	if rawBudget > math.MaxInt64/rawBufferFactor {
+		rawBudget = math.MaxInt64
+	} else {
+		rawBudget *= rawBufferFactor
+	}
 	for n := 0; ; n++ {
 		if names != nil && lim.MaxRows > 0 && len(records) > lim.MaxRows {
 			break // already holds the overflow record; later input is never parsed
@@ -193,7 +208,7 @@ func read(ctx context.Context, rr recordReader, header bool, lim frame.Limits) (
 		for _, c := range rec {
 			size += int64(len(c)) + 16
 		}
-		if lim.MaxBytes > 0 && bytesRead+size > lim.MaxBytes {
+		if lim.MaxBytes > 0 && bytesRead > rawBudget-size {
 			return names, records, true, nil
 		}
 		bytesRead += size

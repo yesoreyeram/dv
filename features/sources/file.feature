@@ -70,6 +70,18 @@ Feature: CSV and TSV files from a configured root
     And the frame is marked truncated
     And the frame has a warning notice mentioning "byte limit"
 
+  Scenario: The byte limit counts converted values, not their text
+    Given the file "ids.csv" contains:
+      """
+      v
+      1234567890123456789
+      """
+    And a byte limit of 24
+    When I query the file "ids.csv"
+    Then the frame field "v" has type "number"
+    And the frame field "v" has values "1234567890123456789"
+    And the frame is not marked truncated
+
   Scenario: A query that sets no limits is still bounded by the default limits
     Given the file "big.csv" contains 50 numeric rows
     And the default row limit for queries is 20
