@@ -28,6 +28,9 @@ const (
 	MaxRateLimitBurst = 1_000_000
 )
 
+// MaxReadinessCacheTTL bounds how long a readiness result may be reused (FR-002 AC5).
+const MaxReadinessCacheTTL = time.Minute
+
 // Duration is a time.Duration that (un)marshals from/to a Go duration string ("15s").
 type Duration time.Duration
 
@@ -70,6 +73,7 @@ type Config struct {
 	IdleTimeout           Duration `json:"idleTimeout"`
 	ShutdownTimeout       Duration `json:"shutdownTimeout"`
 	ReadinessCheckTimeout Duration `json:"readinessCheckTimeout"`
+	ReadinessCacheTTL     Duration `json:"readinessCacheTTL"`
 	MaxHeaderBytes        int      `json:"maxHeaderBytes"`
 	MaxBodyBytes          int64    `json:"maxBodyBytes"`
 
@@ -94,6 +98,7 @@ func Default() Config {
 		IdleTimeout:           Duration(120 * time.Second),
 		ShutdownTimeout:       Duration(15 * time.Second),
 		ReadinessCheckTimeout: Duration(2 * time.Second),
+		ReadinessCacheTTL:     Duration(time.Second),
 		MaxHeaderBytes:        64 << 10,
 		MaxBodyBytes:          1 << 20,
 		FileMaxBytes:          64 << 20,
@@ -178,6 +183,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	dur("DV_IDLE_TIMEOUT", &cfg.IdleTimeout)
 	dur("DV_SHUTDOWN_TIMEOUT", &cfg.ShutdownTimeout)
 	dur("DV_READINESS_CHECK_TIMEOUT", &cfg.ReadinessCheckTimeout)
+	dur("DV_READINESS_CACHE_TTL", &cfg.ReadinessCacheTTL)
 	integer("DV_MAX_HEADER_BYTES", &cfg.MaxHeaderBytes)
 	if v, ok := lookup(getenv, "DV_MAX_BODY_BYTES"); ok {
 		n, err := strconv.ParseInt(v, 10, 64)
@@ -266,6 +272,11 @@ func (c Config) Validate() error {
 		if d.v <= 0 {
 			errs = append(errs, fmt.Errorf("%s must be > 0", d.name))
 		}
+	}
+	// Zero disables reuse (probes still share one in-flight run); the upper bound keeps a
+	// stale "ready" from masking a failed dependency for long (FR-002 AC5).
+	if c.ReadinessCacheTTL < 0 || c.ReadinessCacheTTL.Std() > MaxReadinessCacheTTL {
+		errs = append(errs, fmt.Errorf("readinessCacheTTL must be between 0 and %s", MaxReadinessCacheTTL))
 	}
 	if c.MaxHeaderBytes < 1<<10 || c.MaxHeaderBytes > 1<<20 {
 		errs = append(errs, errors.New("maxHeaderBytes must be between 1KiB and 1MiB"))

@@ -11,7 +11,10 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -51,11 +54,17 @@ type world struct {
 
 	resp      *httptest.ResponseRecorder
 	responses []*httptest.ResponseRecorder
+
+	checkCalls map[string]*atomic.Int32 // invocations per readiness check
+	release    chan struct{}            // unblocks stuck readiness checks after a scenario
 }
 
 func newWorld() *world {
 	cfg := config.Default()
-	return &world{cfg: cfg, build: buildinfo.Get(), health: health.New(cfg.ReadinessCheckTimeout.Std(), nil)}
+	return &world{
+		cfg: cfg, build: buildinfo.Get(), health: health.New(cfg.ReadinessCheckTimeout.Std(), nil),
+		checkCalls: map[string]*atomic.Int32{},
+	}
 }
 
 func (w *world) server() (*server.Server, error) {
@@ -113,6 +122,12 @@ func initializeScenario(sc *godog.ScenarioContext) {
 		*w = *newWorld()
 		return ctx, nil
 	})
+	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		if w.release != nil {
+			close(w.release)
+		}
+		return ctx, nil
+	})
 
 	sc.Step(`^the dv server is running$`, func() error { return nil })
 	sc.Step(`^the dv server is running with version "([^"]*)" and commit "([^"]*)"$`, func(v, c string) error {
@@ -155,6 +170,75 @@ func initializeScenario(sc *godog.ScenarioContext) {
 			return errors.New("registration succeeded, want failure")
 		}
 		return nil
+	})
+	sc.Step(`^the readiness check "([^"]*)" passes and counts its calls$`, func(name string) error {
+		n := &atomic.Int32{}
+		w.checkCalls[name] = n
+		w.health.Register(name, func(context.Context) error {
+			n.Add(1)
+			time.Sleep(20 * time.Millisecond) // long enough for a burst of probes to overlap
+			return nil
+		})
+		return nil
+	})
+	sc.Step(`^the readiness check "([^"]*)" blocks forever ignoring cancellation$`, func(name string) error {
+		// Short timeout and TTL keep the scenario fast; the server applies the TTL.
+		w.cfg.ReadinessCheckTimeout = config.Duration(50 * time.Millisecond)
+		w.cfg.ReadinessCacheTTL = config.Duration(50 * time.Millisecond)
+		w.health = health.New(w.cfg.ReadinessCheckTimeout.Std(), nil)
+		w.release = make(chan struct{})
+		n := &atomic.Int32{}
+		w.checkCalls[name] = n
+		release := w.release
+		w.health.Register(name, func(context.Context) error { n.Add(1); <-release; return nil })
+		return nil
+	})
+	sc.Step(`^I send (\d+) concurrent GET requests to "([^"]*)"$`, func(n int, path string) error {
+		if _, err := w.server(); err != nil {
+			return err
+		}
+		w.responses = make([]*httptest.ResponseRecorder, n)
+		errs := make([]error, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func(i int) { defer wg.Done(); w.responses[i], errs[i] = w.get(path, nil) }(i)
+		}
+		wg.Wait()
+		return errors.Join(errs...)
+	})
+	sc.Step(`^I wait for the readiness cache to expire$`, func() error {
+		time.Sleep(w.cfg.ReadinessCacheTTL.Std() + 20*time.Millisecond)
+		return nil
+	})
+	sc.Step(`^every response status should be (\d+)$`, func(code int) error {
+		for i, rr := range w.responses {
+			if rr.Code != code {
+				return fmt.Errorf("response %d status = %d, want %d", i, rr.Code, code)
+			}
+		}
+		return nil
+	})
+	checkCount := func(name string) (int, error) {
+		n, ok := w.checkCalls[name]
+		if !ok {
+			return 0, fmt.Errorf("readiness check %q is not counted", name)
+		}
+		return int(n.Load()), nil
+	}
+	sc.Step(`^the readiness check "([^"]*)" should have run at most (\d+) times?$`, func(name string, max int) error {
+		got, err := checkCount(name)
+		if err == nil && got > max {
+			err = fmt.Errorf("readiness check %q ran %d times, want at most %d", name, got, max)
+		}
+		return err
+	})
+	sc.Step(`^the readiness check "([^"]*)" should have been started (\d+) times?$`, func(name string, want int) error {
+		got, err := checkCount(name)
+		if err == nil && got != want {
+			err = fmt.Errorf("readiness check %q started %d times, want %d", name, got, want)
+		}
+		return err
 	})
 	sc.Step(`^the server has started shutting down$`, func() error { w.health.SetDraining(); return nil })
 
