@@ -12,7 +12,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-005 | Dockerfile (distroless, non-root) + docker-compose with hardening | M0 | NFR-SEC-011, NFR-PORT-003 | In review (image build verified only in CI) |
 | B-010 | `internal/frame`: data-frame model, JSON wire encoding, limits (+ TS decoder) | M2 | FR-010, NFR-PERF-003 | In review (PR #3) |
 | B-011 | Plugin registry + `Source`/`Format` interfaces (ADR-0002) with readiness check, `GET /api/v1/plugins`, Data sources catalogue page | M2 | FR-015, NFR-SEC-002 | In review (PR #3) |
-| B-012 | CSV/TSV format + file source rooted with `os.Root` | M2 | FR-011, NFR-SEC-006 | In review (PR #4, stacked on #3) |
+| B-012 | CSV/TSV format + file source rooted with `os.Root` (+ default query limits, capReader contract fix) | M2 | FR-011, NFR-SEC-006 | In review (PR #4, stacked on #3) |
 | B-013 | JSON format | M2 | FR-012 | Todo |
 | B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON) | M2 | FR-010, NFR-SEC-009 | Todo |
 | B-015 | Explore page: source picker, query, table panel | M2 | FR-013, NFR-A11Y-004 | Todo |
@@ -36,4 +36,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-040 | Map file-source error kinds to HTTP statuses (400/404/413/415) in `POST /api/v1/query` | M2 | FR-011 AC9, FR-010 | Todo (with B-014) |
 | B-041 | File listing capability for the file source (browse a root in the query editor) with the same path controls | M2 | FR-011, NFR-SEC-006 | Todo |
 | B-042 | Provisioned data-source instances from config until M3 storage exists, so the query API can be used | M2 | FR-011, FR-015 | Todo |
+| B-043 | Cache `/readyz` results (~1 s, singleflight) so probe floods cannot pile up goroutines blocked in `os.Stat` on a hung mount (review finding, plausible, not reproduced) | M2 | NFR-AVAIL-001, NFR-SEC-006 | Todo |
+| B-044 | Host-level query limits in config (`queryMaxRows`/`queryMaxBytes`) wired into `builtin.Options.QueryDefaults` and `POST /api/v1/query` | M2 | NFR-PERF-003 | Todo (with B-014) |
+| B-045 | Cluster-aware rate limiting and trusted-proxy keying (limiter is per instance; see B-021) | M3 | NFR-SEC-008 | Todo |
 | B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |
