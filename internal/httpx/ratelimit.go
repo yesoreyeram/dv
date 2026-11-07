@@ -48,10 +48,26 @@ func NewRateLimiter(rps float64, burst, maxClients int, now func() time.Time) *R
 		now = time.Now
 	}
 	return &RateLimiter{
-		rate: rps, burst: float64(burst), maxClients: maxClients, idleTTL: 3 * time.Minute,
+		rate: rps, burst: float64(burst), maxClients: maxClients, idleTTL: idleTTLFor(rps, burst),
 		now: now, clients: make(map[string]*bucket), lastSweep: now(),
 		overflow: bucket{tokens: float64(burst), last: now()},
 	}
+}
+
+// minIdleTTL is the shortest time an idle client stays in the table.
+const minIdleTTL = 3 * time.Minute
+
+// idleTTLFor returns how long an idle bucket must be kept before eviction. A bucket may
+// only be dropped once it would have refilled to burst anyway; evicting it sooner would
+// hand the client a fresh full burst and let it exceed the sustained rate (e.g. at
+// 0.01 rps / burst 40, a 3-minute TTL would grant 40 tokens every 3 minutes instead of
+// ~2).
+func idleTTLFor(rps float64, burst int) time.Duration {
+	if rps <= 0 {
+		return minIdleTTL
+	}
+	refill := time.Duration(float64(burst) / rps * float64(time.Second))
+	return max(minIdleTTL, refill)
 }
 
 // Allow consumes a token for key. When denied it returns the wait until the next token.
