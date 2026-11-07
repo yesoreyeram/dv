@@ -28,3 +28,17 @@ in-memory model.
 - Columnar layout maps directly to chart series and is cache friendly.
 - Mixed-type columns (common in JSON/CSV) are coerced by type inference with explicit
   per-field overrides; un-coercible values become null plus a frame notice.
+
+## Implementation notes (2026-11-07, FR-010)
+
+- Package `internal/frame`. Values are stored per field as `[]any` holding the Go type for
+  the field type (`time.Time`, `float64`/`int64`, `string`, `bool`, `json.RawMessage`) or
+  `nil` for null. Generic typed vectors were considered; `[]any` keeps the API small while
+  types are enforced on every append. Revisit with Arrow if profiling demands it.
+- Wire times are **UTC epoch milliseconds** (integers). Sub-millisecond precision is not
+  transported; this matches browser `Date` precision.
+- `int64` values are encoded exactly; JavaScript clients lose precision beyond ±2^53.
+- `NaN`/`±Inf` are stored as null because JSON cannot represent them.
+- `Builder` limits: `MaxRows` and `MaxBytes` (estimated: 8 B per number/time/bool, length
+  of strings/JSON + 16 B overhead). Hitting a limit returns `frame.ErrLimitReached`, sets
+  `Meta.Truncated` and appends a `warning` notice; the rows already added are kept.

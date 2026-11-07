@@ -54,6 +54,20 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 | I | Theme preference storage leaks data | Only `"light"`/`"dark"` stored in `localStorage`; reads wrapped in try/catch | `theme.test.tsx` |
 | D | Unbounded retries hammer the API | TanStack Query retry capped (2) with exponential backoff | `queryClient.ts` |
 
+## F-08 Data-frame model and plugin registry (FR-010, FR-015, NFR-PERF-003, NFR-SEC-002)
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T | A plugin is swapped or injected at runtime (e.g. by later code registering a shadowing ID) | Plugins are compiled in; duplicate IDs rejected; registry frozen after start-up so `Register` fails afterwards | `registry_test.go`, `plugins.feature` |
+| T | Malformed wire payload (mismatched column lengths, wrong types) crashes consumers | `frame.Frame.UnmarshalJSON` and the TS decoder validate types and lengths and return errors, never panic | `frame_test.go`, `frame.test.ts`, `frame.feature` |
+| I | Data-source secrets leak through API responses or logs | `plugin.SecureValues` marshals to `{key: true}` (set flags only) and implements `slog.LogValuer` → `[REDACTED]`; `String()`/`%v` redacted too | `secure_test.go`, `plugins.feature` |
+| I | Plugin catalogue reveals internals | Endpoint returns only static public metadata (no instance config, hosts, versions of dependencies). Requires auth once M3 lands (B-020) | `server_test.go` |
+| D | Memory exhaustion from a huge result set | `frame.Builder` enforces row and byte limits while appending; build stops at the limit and flags `meta.truncated` with a notice | `builder_test.go`, `frame.feature` |
+| D | Huge or deeply nested field names / JSON values | Field names capped at 256 bytes; JSON values must be valid JSON and count towards the byte limit | `frame_test.go` |
+
+Residual risks: the byte limit is an estimate of in-memory size, not exact allocation;
+`int64` numbers beyond ±2^53 lose precision in browsers (documented in ADR-0003).
+
 ## Planned features (threats to model at implementation time)
 
 - **F-03 File sources (M2):** path traversal, symlink escape, zip bombs, CSV formula injection on export, memory exhaustion → `os.Root`, size/row caps, streaming parsers.

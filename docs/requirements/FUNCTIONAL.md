@@ -24,7 +24,8 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-005 | Application shell (navigation, layout, theming) | M | M0/M1 | In progress |
 | FR-006 | System status view in the UI | S | M0/M1 | In progress |
 | FR-007 | API reference view in the UI | C | M0/M1 | In progress |
-| FR-010 | Common data-frame model | M | M2 | Planned |
+| FR-010 | Common data-frame model | M | M2 | In progress |
+| FR-015 | Plugin registry and plugin catalogue | M | M2 | In progress |
 | FR-011 | CSV / TSV file source | M | M2 | Planned |
 | FR-012 | JSON file source | M | M2 | Planned |
 | FR-013 | Table panel | M | M2 | Planned |
@@ -94,10 +95,44 @@ The UI lists endpoints from `/api/openapi.json` (method, path, summary).
 - AC1: every path/method in the spec is rendered.
 - AC2: rendering uses text only (no HTML injection from the spec).
 
-### FR-010 … FR-064
+### FR-010 — Common data-frame model (M)
+Every source normalises its result into `internal/frame` (ADR-0003) so panels render data
+from any source identically.
+- AC1: a frame is columnar: a name, ordered fields and metadata; each field has a name, a
+  type (`time`, `number`, `string`, `bool`, `json`), nullable values and display config
+  (unit, decimals, display name).
+- AC2: all fields of a frame have the same length; constructing or appending a row that
+  would break this is rejected with an error, never a panic.
+- AC3: a value of the wrong type for its field is rejected with an error naming the field.
+  `NaN` and `±Inf` numbers are stored as null (JSON cannot represent them).
+- AC4: frames encode to the column-major JSON wire format
+  `{"schema":{"name","meta","fields":[{"name","type","config"}]},"data":{"values":[[…]]}}`;
+  times are UTC epoch milliseconds, nulls are JSON `null`. Decoding the wire format
+  validates types and lengths and round-trips losslessly (at millisecond precision).
+- AC5: a frame builder enforces configurable row and byte limits *while* rows are added
+  (NFR-PERF-003); hitting a limit stops the build, sets `meta.truncated` and adds a notice.
+- AC6: field names must be non-empty, at most 256 bytes and unique within a frame.
+- AC7: the TypeScript client decodes the wire format into typed columns (times as epoch
+  ms numbers) and rejects malformed payloads.
+
+### FR-015 — Plugin registry and catalogue (M)
+Data-source and format plugins (ADR-0002) are compiled in and registered at start-up.
+- AC1: `Source` and `Format` interfaces exist as specified in ADR-0002; every method takes
+  a `context.Context`.
+- AC2: plugin IDs match `^[a-z][a-z0-9-]{1,62}$`; duplicate or invalid IDs are rejected at
+  registration.
+- AC3: the registry is frozen once start-up completes; later registration fails. The
+  `plugins` readiness check fails until the registry is frozen.
+- AC4: `GET /api/v1/plugins` returns `{"sources":[…],"formats":[…]}` sorted by ID with only
+  public metadata (id, name, description, capabilities / media types, extensions).
+- AC5: secret source settings (`SecureJSONData`) are write-only: JSON encoding exposes only
+  which keys are set, and `slog` output shows `[REDACTED]` (NFR-SEC-002).
+- AC6: the Data sources page lists the registered plugin types from the API, and shows an
+  explicit empty state when none are registered (no fake data, FR-005 AC6).
+
+### FR-011 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
 (see `docs/BACKLOG.md`). Draft intent:
-- **FR-010** Frames are columnar: named, typed fields (`time`, `number`, `string`, `bool`, `json`), row count consistent across fields, metadata (source, query, warnings).
 - **FR-011/012** Files are read only from configured root directories; size/row limits enforced; type inference with explicit overrides.
 - **FR-013/014** Panels render frames; line chart needs one time field and ≥1 numeric field.
 - **FR-020/021** Argon2id-hashed passwords, server-side sessions, CSRF protection; RBAC enforced server-side on every endpoint.
