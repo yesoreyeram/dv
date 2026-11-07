@@ -68,9 +68,30 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 Residual risks: the byte limit is an estimate of in-memory size, not exact allocation;
 `int64` numbers beyond ±2^53 lose precision in browsers (documented in ADR-0003).
 
+## F-03 File source and CSV/TSV format (FR-011, NFR-SEC-006, NFR-PERF-003)
+
+Data flow: operator config → named roots opened with `os.Root` at start-up → `file` source
+instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → path validation
+→ `os.Root.Open` → size-capped reader → CSV/TSV decoder → frame builder with limits.
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| I/T | Path traversal (`../`, absolute paths, `C:\`, encoded separators) reads files outside the root | `fsroot.CleanPath` rejects empty/absolute paths, `..` segments, backslashes, NUL and control characters before any FS call; `os.Root` refuses escapes as a second layer | `fsroot_test.go`, `file.feature` |
+| I | Symlink inside a root points outside it (`/etc/passwd`) | `os.Root` resolves every component inside the root and rejects symlinks that escape | `fsroot_test.go`, `file.feature` |
+| I | Reading devices, FIFOs or directories (e.g. a FIFO blocks forever, `/dev/zero` never ends) | Only regular files: mode checked on the opened handle; FIFOs opened non-blocking by `os.Root` are rejected before any read | `fsroot_test.go` |
+| T | TOCTOU: file swapped or grown between check and read | Size and type are checked with `Stat` on the opened handle, and the reader is capped at the limit (+1 byte to detect growth → error) | `fsroot_test.go` |
+| D | Huge file, very long lines or a wide CSV exhausts memory | `fileMaxBytes` cap (default 64 MiB); 1024-column cap; row/byte limits stop collection early and flag truncation; context cancellation checked during decode | `csv_test.go`, `file.feature` |
+| I | Error messages disclose the server's directory layout | Errors carry the relative path and a stable kind; the absolute root path is never included | `file_test.go` |
+| E | A query names a root the instance is not configured for | The root comes only from the instance's `jsonData.root`, never from the query body; unknown query keys are rejected | `file_test.go` |
+| S/R | Unauthenticated users read files | Out of scope until M3: the query API (B-014) will require an authenticated Viewer and audit-log reads (B-020, NFR-AUD-001). Until then roots should only contain non-sensitive data | — |
+
+Residual risks: CSV formula injection matters on *export* (not implemented yet; the
+exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
+bombs are not reachable; decompression must enforce the same output cap when added.
+Inference reads the whole (capped) file into memory before building columns.
+
 ## Planned features (threats to model at implementation time)
 
-- **F-03 File sources (M2):** path traversal, symlink escape, zip bombs, CSV formula injection on export, memory exhaustion → `os.Root`, size/row caps, streaming parsers.
 - **F-04 AuthN/RBAC (M3):** credential stuffing, session fixation, CSRF, privilege escalation, IDOR → Argon2id, rotating session IDs, SameSite=strict cookies + CSRF tokens, server-side RBAC, object-level checks.
 - **F-05 Secrets (M3):** key exposure, secrets in logs/responses → envelope encryption (AES-256-GCM, KEK from env/KMS), write-only API fields, slog redaction.
 - **F-06 SQL sources (M4):** SQL injection, expensive queries, data exfiltration → parameterized queries, read-only transactions, statement timeouts, row limits.

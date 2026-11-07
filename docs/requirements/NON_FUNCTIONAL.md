@@ -12,7 +12,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | NFR-SEC-003 | AuthN required for all non-public endpoints; RBAC enforced server-side; deny by default. | M | BDD scenarios per role | Planned (M3) |
 | NFR-SEC-004 | SQL sources use parameterized queries only; no string-built SQL from user input. | M | gosec G201/G202; tests | Planned (M4) |
 | NFR-SEC-005 | Outbound HTTP (API/URL sources) passes an SSRF guard: scheme allow-list, DNS-resolved IP checks against private/link-local/loopback/metadata ranges, redirect re-validation, timeouts, size caps. | M | Unit + BDD tests | Planned (M5) |
-| NFR-SEC-006 | File sources resolve paths inside configured roots only (no `..`, symlink escape, absolute paths); uses `os.Root`. | M | Unit + BDD tests | Planned (M2) |
+| NFR-SEC-006 | File sources resolve paths inside configured roots only (no `..`, symlink escape, absolute paths); uses `os.Root`. | M | Unit + BDD tests | In progress (FR-011) |
 | NFR-SEC-007 | Every HTTP response carries: strict `Content-Security-Policy` (no `unsafe-inline` scripts), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` + `frame-ancestors 'none'`, `Permissions-Policy`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`; HSTS when TLS. | M | Unit + BDD tests | In progress |
 | NFR-SEC-008 | Per-client rate limiting on the API (token bucket; `429` + `Retry-After`). | M | Unit + BDD tests | In progress |
 | NFR-SEC-009 | Input validation: request bodies size-limited (default 1 MiB), JSON decoded with unknown-field rejection, configuration validated at startup (fail fast). | M | Unit tests | In progress |
