@@ -56,6 +56,7 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 | T | Supply-chain compromise of npm packages | Lockfile pinned, `--frozen-lockfile` in CI, `pnpm audit` (prod deps: low+ fails; all deps: moderate+ fails), scoped and documented `overrides` for unfixed transitive advisories (SECURITY.md), Dependabot, minimal dependency set, no CDN scripts (CSP forbids them) | CI `web` job |
 | I | Theme preference storage leaks data | Only `"light"`/`"dark"` stored in `localStorage`; reads wrapped in try/catch | `theme.test.tsx` |
 | D | Unbounded retries hammer the API | TanStack Query retry capped (2) with exponential backoff | `queryClient.ts` |
+| S | UI copy overstates protections (for example "credentials are encrypted at rest" before FR-022 ships), so an operator relies on a control that does not exist and stores real secrets in plaintext config | Copy describes shipped behaviour only; planned controls are named with their milestone (FR-015 AC7, NFR-AUD-004, B-049). A catalog-wide test rejects security/compliance claims without a planned-milestone marker unless allow-listed against a shipped requirement | `messages.test.ts`, `datasources.feature` |
 
 ## F-08 Data-frame model and plugin registry (FR-010, FR-015, NFR-PERF-003, NFR-SEC-002)
 

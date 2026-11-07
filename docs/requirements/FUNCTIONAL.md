@@ -144,6 +144,10 @@ Data-source and format plugins (ADR-0002) are compiled in and registered at star
   which keys are set, and `slog` output shows `[REDACTED]` (NFR-SEC-002).
 - AC6: the Data sources page lists the registered plugin types from the API, and shows an
   explicit empty state when none are registered (no fake data, FR-005 AC6).
+- AC7: the Data sources page describes only what this build does. It lists connector types
+  as compiled in, names SQL and HTTP connectors as roadmap items, and states that stored
+  credentials are not supported yet and encrypted secret storage (FR-022) is planned for
+  milestone M3. It must not claim encryption at rest before FR-022 ships (NFR-AUD-004).
 
 ### FR-011 — CSV / TSV file source (M)
 Operators expose directories of files to dv; editors query CSV/TSV files in them as frames.

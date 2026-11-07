@@ -39,7 +39,8 @@ export const en = {
   "dashboards.body": "Compose panels into dashboards with variables and a shared time range.",
   "dataSources.title": "Data sources",
   "dataSources.body":
-    "Connect files, SQL databases and HTTP APIs. Credentials are encrypted at rest and never sent back to the browser.",
+    "These are the connector types compiled into this server. SQL databases and HTTP APIs are on the roadmap. Stored credentials are not supported yet.",
+  "dataSources.secretsPlanned": "Encrypted secret storage is planned for milestone M3.",
   "dataSources.subtitle": "Plugin types compiled into this server.",
   "dataSources.sources": "Data source types",
   "dataSources.sourcesDescription": "Where data comes from: databases, APIs and file stores.",

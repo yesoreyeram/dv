@@ -72,6 +72,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | NFR-AUD-001 | Security-relevant actions (login, permission changes, data-source CRUD, secret updates) are written to an append-only audit log with actor, action, target, time, outcome, request ID. | M | Tests | Planned (M3/M7) |
 | NFR-AUD-002 | Personal data minimised; logs contain no PII beyond user ID; retention configurable. | S | Review | Planned |
 | NFR-AUD-003 | SBOM (CycloneDX/SPDX) produced for release artifacts. | S | CI | Planned |
+| NFR-AUD-004 | Product copy makes no security or compliance claim the running build does not deliver. **AC1:** a UI message that mentions a security or compliance property (encryption, single sign-on, role-based access, audit logging, compliance certifications) either describes shipped behaviour or names it as planned together with its milestone (for example "planned for milestone M3"). **AC2:** a unit test over the whole message catalog fails when a message mentions such a property without a planned-milestone marker, unless the message key is on an explicit allow-list that cites the shipped FR/NFR ID. **AC3:** allow-list entries are reviewed when the cited requirement changes status. | M | Vitest (`messages.test.ts`), UI BDD | In progress |
 
 ## Maintainability (MAINT)
 

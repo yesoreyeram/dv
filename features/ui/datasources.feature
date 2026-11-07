@@ -16,3 +16,9 @@ Feature: Data source catalogue in the UI
     Then the catalogue lists the data source type "Local files"
     And the catalogue lists the file format "CSV"
     And the catalogue lists the file format "TSV"
+
+  @NFR-AUD-004
+  Scenario: Data sources page does not claim protections that have not shipped
+    Given I open the app at "/data-sources"
+    Then I do not see the text "encrypted at rest"
+    And I see the text "Encrypted secret storage is planned for milestone M3."
