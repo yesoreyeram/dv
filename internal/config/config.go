@@ -12,6 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +64,12 @@ type Config struct {
 	ReadinessCheckTimeout Duration `json:"readinessCheckTimeout"`
 	MaxHeaderBytes        int      `json:"maxHeaderBytes"`
 	MaxBodyBytes          int64    `json:"maxBodyBytes"`
+
+	// FileRoots maps root names to absolute directories the file source may read
+	// (FR-011 AC1). Empty disables file access.
+	FileRoots map[string]string `json:"fileRoots"`
+	// FileMaxBytes caps the size of a file read by the file source (FR-011 AC4).
+	FileMaxBytes int64 `json:"fileMaxBytes"`
 }
 
 // Default returns the secure-by-default configuration.
@@ -79,6 +88,7 @@ func Default() Config {
 		ReadinessCheckTimeout: Duration(2 * time.Second),
 		MaxHeaderBytes:        64 << 10,
 		MaxBodyBytes:          1 << 20,
+		FileMaxBytes:          64 << 20,
 	}
 }
 
@@ -169,7 +179,44 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 			cfg.MaxBodyBytes = n
 		}
 	}
+	if v, ok := lookup(getenv, "DV_FILE_ROOTS"); ok {
+		roots, err := parseRoots(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("DV_FILE_ROOTS: %w", err))
+		} else {
+			cfg.FileRoots = roots
+		}
+	}
+	if v, ok := lookup(getenv, "DV_FILE_MAX_BYTES"); ok {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("DV_FILE_MAX_BYTES: %w", err))
+		} else {
+			cfg.FileMaxBytes = n
+		}
+	}
 	return errors.Join(errs...)
+}
+
+// parseRoots parses "name=/abs/dir,other=/dir2". It replaces any roots from the file.
+func parseRoots(v string) (map[string]string, error) {
+	roots := map[string]string{}
+	for _, entry := range strings.Split(v, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		name, dir, ok := strings.Cut(entry, "=")
+		name, dir = strings.TrimSpace(name), strings.TrimSpace(dir)
+		if !ok || name == "" || dir == "" {
+			return nil, fmt.Errorf("entry %q must be name=/absolute/dir", entry)
+		}
+		if _, dup := roots[name]; dup {
+			return nil, fmt.Errorf("root %q is listed twice", name)
+		}
+		roots[name] = dir
+	}
+	return roots, nil
 }
 
 func lookup(getenv func(string) string, key string) (string, bool) {
@@ -225,10 +272,45 @@ func (c Config) Validate() error {
 			errs = append(errs, fmt.Errorf("webDir %q is not a directory", c.WebDir))
 		}
 	}
+	if c.FileMaxBytes < 1<<10 || c.FileMaxBytes > 1<<30 {
+		errs = append(errs, errors.New("fileMaxBytes must be between 1KiB and 1GiB"))
+	}
+	errs = append(errs, validateRoots(c.FileRoots)...)
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// rootName mirrors fsroot.ValidName; config must not import plugin packages.
+var rootName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+
+func validateRoots(roots map[string]string) []error {
+	names := make([]string, 0, len(roots))
+	for n := range roots {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var errs []error
+	for _, name := range names {
+		dir := roots[name]
+		if !rootName.MatchString(name) {
+			errs = append(errs, fmt.Errorf("fileRoots: name %q must match %s", name, rootName))
+			continue
+		}
+		if !filepath.IsAbs(dir) {
+			errs = append(errs, fmt.Errorf("fileRoots.%s: %q must be an absolute path", name, dir))
+			continue
+		}
+		fi, err := os.Stat(dir)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("fileRoots.%s: %w", name, err))
+		case !fi.IsDir():
+			errs = append(errs, fmt.Errorf("fileRoots.%s: %q is not a directory", name, dir))
+		}
+	}
+	return errs
 }
 
 // SlogLevel parses LogLevel.

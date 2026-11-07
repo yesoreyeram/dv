@@ -58,3 +58,16 @@ func TestRunAndShutdown(t *testing.T) {
 		}
 	}
 }
+
+func TestRunRegistersBuiltinPlugins(t *testing.T) {
+	var logs bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := run(ctx, nil, env(map[string]string{"DV_HTTP_ADDR": "127.0.0.1:0", "DV_FILE_ROOTS": "samples=" + t.TempDir()}), &bytes.Buffer{}, &logs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), `"fileRoots":["samples"]`) {
+		t.Fatalf("logs = %s", logs.String())
+	}
+}
