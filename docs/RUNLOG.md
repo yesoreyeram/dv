@@ -50,3 +50,16 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Evidence (on `feat/csv-file-source`): `go test -race ./...` green, total coverage 98.1 %; golangci-lint 0 issues; godog 23 api + 18 sources + 6 core scenarios; Vitest 48/48; UI BDD 20/20; `pnpm audit --audit-level high` passes (1 known moderate, B-035). Prototype: 500 concurrent `/readyz` probes against `./bin/dv` all returned 200. Out-of-range TTLs fail at start-up. Screenshots: `docs/screenshots/feat-m0-foundation/run5-*`.
 - Not verified locally: govulncheck (golang.org blocked), gitleaks, and the Docker build (no daemon); all are left to CI. No dependency changes.
 - Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 provisioned instances + B-040 error mapping, then B-013 JSON. New: B-046 readiness flood benchmark.
+
+## 2026-11-07 ~16:40 UTC — review fix on PR #4: byte-truncated rows no longer drive type inference (no new PR)
+- Triage: PRs #2, #3, #4 open and unmerged, and all 7 CI checks are green on each. #2 and #3 have every review thread resolved. #4 has one unresolved Codex P2 (PRRT_kwDOVlvWxc604A-H): rows that the builder's byte limit drops still took part in type inference. `main` has not moved. With three PRs open, the run rules say to fix the open stack instead of opening a new PR.
+- Planned: fix the finding on PR #4, which owns `internal/plugins/csvformat`. Requirements and the scenario go first.
+- Shipped on `feat/csv-file-source` ([#4](https://github.com/yesoreyeram/dv/pull/4)):
+  - FR-011 AC7 now states that inference uses only returned rows. New godog scenario: "Rows dropped by the byte limit do not change inferred types".
+  - `build` now streams. Each record narrows per-column candidate types and is appended under the types inferred from the prefix that includes it. When a record widens a column's type, the builder is rebuilt from the retained prefix. If that rebuild or the record itself does not fit, the previous frame is returned and flagged truncated. The number of rebuilds is bounded (at most 4 type changes per column). Result: the longest prefix whose types come only from its own rows.
+  - A first attempt that shrank to the retained prefix and re-inferred was rejected: it dropped row `2` in the reviewer's example, which fits once the column is numeric.
+  - The fuzz target now varies `MaxBytes` and asserts that no retained cell fails conversion when there is no override. It ran about 950k executions in 45 s with no failure.
+- Evidence: the reviewer's input (`v\n1\n2\nx\n`, `MaxBytes: 60`) returned 1 `string` row before the fix and returns 2 `number` rows, truncated, after it. `go test -race` is green for all non-BDD packages; csvformat coverage is 97.6 %. golangci-lint reports 0 issues. `make build` and `make run` work, and `/readyz` is ready. Screenshots: `docs/screenshots/feat-csv-file-source/run6-*`.
+- Not verified locally: godog (this sandbox cannot download `github.com/cucumber/godog`, because proxy.golang.org and gopkg.in are blocked), govulncheck, gitleaks and the Docker build. All of these are left to CI. No dependency changes.
+- Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 provisioned instances + B-040 error mapping, then B-013 JSON.
+

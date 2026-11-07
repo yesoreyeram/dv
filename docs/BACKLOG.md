@@ -12,7 +12,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-005 | Dockerfile (distroless, non-root) + docker-compose with hardening | M0 | NFR-SEC-011, NFR-PORT-003 | In review (image build verified only in CI) |
 | B-010 | `internal/frame`: data-frame model, JSON wire encoding, limits (+ TS decoder) | M2 | FR-010, NFR-PERF-003 | In review (PR #3) |
 | B-011 | Plugin registry + `Source`/`Format` interfaces (ADR-0002) with readiness check, `GET /api/v1/plugins`, Data sources catalogue page | M2 | FR-015, NFR-SEC-002 | In review (PR #3) |
-| B-012 | CSV/TSV format + file source rooted with `os.Root` (+ default query limits, capReader contract fix) | M2 | FR-011, NFR-SEC-006 | In review (PR #4, stacked on #3) |
+| B-012 | CSV/TSV format + file source rooted with `os.Root` (+ default query limits, capReader contract fix, inference from retained rows only) | M2 | FR-011, NFR-SEC-006 | In review (PR #4, stacked on #3) |
 | B-013 | JSON format | M2 | FR-012 | Todo |
 | B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON) | M2 | FR-010, NFR-SEC-009 | Todo |
 | B-015 | Explore page: source picker, query, table panel | M2 | FR-013, NFR-A11Y-004 | Todo |
