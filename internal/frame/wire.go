@@ -104,14 +104,40 @@ func encodeColumn(fld *Field) (json.RawMessage, error) {
 	return buf.Bytes(), nil
 }
 
+// wireFrameIn mirrors wireFrame with pointers so absent or null containers can be told
+// apart from valid empty ones while decoding.
+type wireFrameIn struct {
+	Schema *struct {
+		Name   string      `json:"name"`
+		Meta   *Meta       `json:"meta,omitempty"`
+		Fields []wireField `json:"fields"`
+	} `json:"schema"`
+	Data *struct {
+		Values []json.RawMessage `json:"values"`
+	} `json:"data"`
+}
+
 // UnmarshalJSON decodes the wire format, validating field types and column lengths.
-// Unknown members are rejected.
+// Unknown members, and absent or null schema/data/fields/values containers, are
+// rejected.
 func (f *Frame) UnmarshalJSON(b []byte) error {
-	var w wireFrame
+	var in wireFrameIn
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&w); err != nil {
+	if err := dec.Decode(&in); err != nil {
 		return fmt.Errorf("decode frame: %w", err)
+	}
+	switch {
+	case in.Schema == nil || in.Data == nil:
+		return errors.New("decode frame: schema and data objects are required")
+	case in.Schema.Fields == nil:
+		return errors.New("decode frame: schema.fields must be an array")
+	case in.Data.Values == nil:
+		return errors.New("decode frame: data.values must be an array")
+	}
+	w := wireFrame{
+		Schema: wireSchema{Name: in.Schema.Name, Meta: in.Schema.Meta, Fields: in.Schema.Fields},
+		Data:   wireData{Values: in.Data.Values},
 	}
 	if len(w.Data.Values) != len(w.Schema.Fields) {
 		return fmt.Errorf("schema has %d fields but data has %d columns: %w",
@@ -144,6 +170,9 @@ func decodeColumn(fld *Field, raw json.RawMessage) error {
 	var cells []json.RawMessage
 	if err := json.Unmarshal(raw, &cells); err != nil {
 		return fmt.Errorf("field %q: values must be an array: %w", fld.Name, err)
+	}
+	if cells == nil {
+		return fmt.Errorf("field %q: values must be an array, not null", fld.Name)
 	}
 	fld.values = make([]any, 0, len(cells))
 	for i, c := range cells {

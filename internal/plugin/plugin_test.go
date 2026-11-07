@@ -61,6 +61,13 @@ func TestCatalogEmptyListsAndCopies(t *testing.T) {
 	if c := r.Catalog(); c.Sources[0].Capabilities == nil {
 		t.Fatal("nil capabilities")
 	}
+	empty := plugintest.NewFormat("fmt")
+	empty.M.MediaTypes, empty.M.Extensions = []string{}, []string{}
+	_ = r.RegisterFormat(empty)
+	if b, _ := json.Marshal(r.Catalog()); !strings.Contains(string(b), `"mediaTypes":[],"extensions":[]`) ||
+		!strings.Contains(string(b), `"capabilities":[]`) {
+		t.Fatalf("explicitly empty slices must encode as []: %s", b)
+	}
 	s2 := plugintest.NewSource("src2")
 	_ = r.RegisterSource(s2)
 	c := r.Catalog()

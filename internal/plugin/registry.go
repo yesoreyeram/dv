@@ -138,11 +138,11 @@ func (r *Registry) Catalog() Catalog {
 	return c
 }
 
+// nonNil returns a non-nil copy of s, so it encodes as a JSON array even when empty.
 func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return append([]string(nil), s...)
+	out := make([]string, len(s))
+	copy(out, s)
+	return out
 }
 
 // ReadinessCheck fails until the registry is frozen, so traffic is only accepted after

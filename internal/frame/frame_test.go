@@ -334,6 +334,14 @@ func TestWireDecodeRejectsMalformed(t *testing.T) {
 		"bool str":      `{"schema":{"name":"x","fields":[{"name":"a","type":"bool"}]},"data":{"values":[["t"]]}}`,
 		"duplicate":     `{"schema":{"name":"x","fields":[{"name":"a","type":"bool"},{"name":"a","type":"bool"}]},"data":{"values":[[],[]]}}`,
 		"syntax":        `{"schema":`,
+		"empty object":  `{}`,
+		"null":          `null`,
+		"null schema":   `{"schema":null,"data":{"values":[]}}`,
+		"no data":       `{"schema":{"name":"x","fields":[]}}`,
+		"null fields":   `{"schema":{"name":"x","fields":null},"data":{"values":[]}}`,
+		"no values":     `{"schema":{"name":"x","fields":[]},"data":{}}`,
+		"null column":   `{"schema":{"name":"x","fields":[{"name":"a","type":"number"}]},"data":{"values":[null]}}`,
+		"null field":    `{"schema":{"name":"x","fields":[null]},"data":{"values":[[]]}}`,
 	}
 	for name, payload := range cases {
 		var f Frame
