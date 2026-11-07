@@ -312,6 +312,16 @@ func initializeFileScenario(sc *godog.ScenarioContext) {
 		}
 		return nil
 	})
+	sc.Step(`^the frame is not marked truncated$`, func() error {
+		fr, err := w.frame()
+		if err != nil {
+			return err
+		}
+		if fr.Meta.Truncated {
+			return fmt.Errorf("frame truncated: %+v", fr.Meta.Notices)
+		}
+		return nil
+	})
 	sc.Step(`^the query fails as "([^"]*)"$`, func(kind string) error {
 		want, ok := errorKinds[kind]
 		if !ok {
