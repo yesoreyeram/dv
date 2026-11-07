@@ -237,16 +237,23 @@ type columnGuard struct {
 	atLineStart bool
 	delims      int
 	line        int
+	err         error // deferred until the consumer reaches the offending record
 }
 
 func (g *columnGuard) Read(p []byte) (int, error) {
+	if g.err != nil {
+		return 0, g.err
+	}
 	n, err := g.r.Read(p)
-	for _, b := range p[:n] {
+	// recordStart is where the current record begins in p (0 if it began earlier).
+	recordStart := 0
+	for i, b := range p[:n] {
 		switch {
 		case g.inComment:
 			if b == '\n' {
 				g.inComment, g.atLineStart = false, true
 				g.line++
+				recordStart = i + 1
 			}
 			continue
 		case g.atLineStart && !g.inQuote && g.comment != 0 && b == g.comment:
@@ -261,11 +268,18 @@ func (g *columnGuard) Read(p []byte) (int, error) {
 			g.line++
 			if !g.inQuote {
 				g.delims, g.atLineStart = 0, true
+				recordStart = i + 1
 			}
 		case b == g.delim && !g.inQuote:
 			g.delims++
 			if g.delims >= MaxColumns {
-				return 0, fmt.Errorf("line %d has more than %d columns: %w", g.line, MaxColumns, ErrDecode)
+				// Hand over the complete records before this one; fail when the
+				// consumer asks for more, so a row limit reached earlier still wins.
+				g.err = fmt.Errorf("line %d has more than %d columns: %w", g.line, MaxColumns, ErrDecode)
+				if recordStart > 0 {
+					return recordStart, nil
+				}
+				return 0, g.err
 			}
 		}
 	}

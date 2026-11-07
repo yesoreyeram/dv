@@ -418,3 +418,28 @@ func TestDelimiterMustBeASCII(t *testing.T) {
 		t.Fatal("custom TSV delimiter")
 	}
 }
+
+func TestColumnGuardKeepsEarlierRecords(t *testing.T) {
+	wide := strings.Repeat(",", MaxColumns) + "\n"
+	// The over-wide record lies beyond the row-limit overflow record: not an error.
+	fr := decode(t, NewCSV(), "v\n1\n2\n"+wide, plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 1}})
+	if fr.Rows() != 1 || !fr.Meta.Truncated {
+		t.Fatalf("rows %d truncated %v", fr.Rows(), fr.Meta.Truncated)
+	}
+	// Without a limit the consumer reaches it, and the error names its line.
+	_, err := NewCSV().Decode(context.Background(), strings.NewReader("v\n1\n2\n"+wide), plugin.DecodeOptions{})
+	if !errors.Is(err, ErrDecode) || !strings.Contains(err.Error(), "line 4 has more than") {
+		t.Fatalf("err = %v", err)
+	}
+	// Further reads keep returning the deferred error.
+	g := &columnGuard{r: strings.NewReader("a\n" + wide), delim: ',', atLineStart: true, line: 1}
+	buf := make([]byte, 4096)
+	if n, err := g.Read(buf); n != 2 || err != nil {
+		t.Fatalf("first read = %d, %v", n, err)
+	}
+	for range 2 {
+		if _, err := g.Read(buf); !errors.Is(err, ErrDecode) {
+			t.Fatalf("deferred err = %v", err)
+		}
+	}
+}
