@@ -25,7 +25,7 @@ lets users build queries, panels and dashboards.
 
 ## Quick start
 
-Requirements: Go ≥ 1.24, Node ≥ 22.12, pnpm 10 (`corepack enable`), GNU make.
+Requirements: Go ≥ 1.24.7 (earlier 1.24 releases let `os.Root` escape through symlinks to `..`), Node ≥ 22.12, pnpm 10 (`corepack enable`), GNU make.
 
 ```bash
 make deps          # go mod download + pnpm install
@@ -37,8 +37,9 @@ Or with containers: `make compose-up` (http://127.0.0.1:8080).
 
 ```bash
 curl -s localhost:8080/healthz         # {"status":"ok"}
-curl -s localhost:8080/readyz          # {"status":"ready","checks":{}}
+curl -s localhost:8080/readyz          # {"status":"ready","checks":{"file-roots":"pass","plugins":"pass"}}
 curl -s localhost:8080/api/v1/version  # build info
+curl -s localhost:8080/api/v1/plugins  # compiled-in data-source and format plugins
 curl -s localhost:8080/api/openapi.json
 ```
 
@@ -58,6 +59,8 @@ Defaults < JSON file (`DV_CONFIG_FILE`) < environment. Invalid configuration fai
 | `DV_READINESS_CHECK_TIMEOUT` | `2s` | Per-check timeout for `/readyz` |
 | `DV_READINESS_CACHE_TTL` | `1s` | How long a `/readyz` result is reused; concurrent probes always share one run. After it expires, the last result is still served for up to `DV_READINESS_CHECK_TIMEOUT` while one refresh runs in the background. `0` disables reuse, max `1m` |
 | `DV_MAX_HEADER_BYTES` / `DV_MAX_BODY_BYTES` | `65536` / `1048576` | Request size limits |
+| `DV_FILE_ROOTS` | _(empty)_ | Directories the `file` source may read, as `name=/abs/dir,other=/abs/dir2` (JSON: `fileRoots: {"name": "/abs/dir"}`). Opened with `os.Root`; nothing outside them is readable. `make run`/`make dev`/compose expose `deploy/samples` as `samples` |
+| `DV_FILE_MAX_BYTES` | `67108864` | Largest file the `file` source reads (1 KiB – 1 GiB) |
 
 JSON file keys use camelCase (`httpAddr`, `shutdownTimeout: "15s"`, …); unknown keys are rejected.
 

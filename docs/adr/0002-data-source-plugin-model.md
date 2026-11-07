@@ -45,3 +45,27 @@ type Format interface {
 
 - Adding a source = implement the interface + register + BDD scenarios.
 - Out-of-process plugins (gRPC) can be added later behind the same interface.
+
+## Implementation notes (2026-11-07, FR-015)
+
+- Package `internal/plugin`. `Health` takes the instance `SourceConfig`
+  (`Health(ctx, cfg)`), because plugin types are stateless and health is per instance.
+- The registry is frozen after start-up (`Freeze`); the `plugins` readiness check fails
+  until then, and later `Register*` calls return `ErrFrozen`.
+- `SecureJSONData` is the `SecureValues` type: JSON shows only `{key: true}`
+  (`secureJsonFields`), `fmt` and `slog` print `[REDACTED]`.
+- The config schema in metadata is deferred to B-038; the host-provided HTTP client
+  arrives with the first network source (M5).
+
+## Implementation notes (2026-11-07, FR-011)
+
+- Host-provided file access is `internal/fsroot.Roots`: operator-named directories
+  (`fileRoots`) opened once with `os.Root` at start-up. Plugins receive the `Roots` value,
+  never a directory path, and can only call `Open(root, relPath, maxBytes)`, which applies
+  `CleanPath`, regular-file and size checks (NFR-SEC-006). A `file-roots` readiness check
+  detects removed or replaced roots.
+- The `file` source binds an instance to a root through `jsonData.root`; the query body
+  (`path`, `format`, `options`, `fieldTypes`) cannot choose the root. Formats are looked up
+  through the registry (explicit ID or file extension), so new formats (JSON, NDJSON, …)
+  become available to the file source by registering them.
+- Built-ins are registered by `internal/plugins/builtin.Register` before `Freeze`.

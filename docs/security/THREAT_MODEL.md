@@ -56,10 +56,61 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 | T | Supply-chain compromise of npm packages | Lockfile pinned, `--frozen-lockfile` in CI, `pnpm audit` (prod deps: low+ fails; all deps: moderate+ fails), scoped and documented `overrides` for unfixed transitive advisories (SECURITY.md), Dependabot, minimal dependency set, no CDN scripts (CSP forbids them) | CI `web` job |
 | I | Theme preference storage leaks data | Only `"light"`/`"dark"` stored in `localStorage`; reads wrapped in try/catch | `theme.test.tsx` |
 | D | Unbounded retries hammer the API | TanStack Query retry capped (2) with exponential backoff | `queryClient.ts` |
+| S | UI copy overstates protections (for example "credentials are encrypted at rest" before FR-022 ships), so an operator relies on a control that does not exist and stores real secrets in plaintext config | Copy describes shipped behaviour only; planned controls are named with their milestone (FR-015 AC7, NFR-AUD-004, B-049). A catalog-wide test rejects security/compliance claims without a planned-milestone marker unless allow-listed against a shipped requirement | `messages.test.ts`, `datasources.feature` |
+
+## F-08 Data-frame model and plugin registry (FR-010, FR-015, NFR-PERF-003, NFR-SEC-002)
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T | A plugin is swapped or injected at runtime (e.g. by later code registering a shadowing ID) | Plugins are compiled in; duplicate IDs rejected; registry frozen after start-up so `Register` fails afterwards | `registry_test.go`, `plugins.feature` |
+| T | Malformed wire payload (mismatched column lengths, wrong types) crashes consumers | `frame.Frame.UnmarshalJSON` and the TS decoder validate types and lengths and return errors, never panic | `frame_test.go`, `frame.test.ts`, `frame.feature` |
+| I | Data-source secrets leak through API responses or logs | `plugin.SecureValues` marshals to `{key: true}` (set flags only) and implements `slog.LogValuer` → `[REDACTED]`; `String()`/`%v` redacted too | `secure_test.go`, `plugins.feature` |
+| I | Plugin catalogue reveals internals | Endpoint returns only static public metadata (no instance config, hosts, versions of dependencies). Requires auth once M3 lands (B-020) | `server_test.go` |
+| D | Memory exhaustion from a huge result set | `frame.Builder` enforces row and byte limits while appending; build stops at the limit and flags `meta.truncated` with a notice | `builder_test.go`, `frame.feature` |
+| D | Huge or deeply nested field names / JSON values | Field names capped at 256 bytes; JSON values must be valid JSON and count towards the byte limit | `frame_test.go` |
+
+Residual risks: the byte limit is an estimate of in-memory size, not exact allocation;
+`int64` numbers beyond ±2^53 lose precision in browsers (documented in ADR-0003).
+
+## F-03 File source and CSV/TSV format (FR-011, NFR-SEC-006, NFR-PERF-003)
+
+Data flow: operator config → named roots opened with `os.Root` at start-up → `file` source
+instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → path validation
+→ `os.Root.Open` → size-capped reader → CSV/TSV decoder → frame builder with limits.
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| I/T | Path traversal (`../`, absolute paths, `C:\`, encoded separators) reads files outside the root | `fsroot.CleanPath` rejects empty/absolute paths, `..` segments, backslashes, NUL and control characters before any FS call; `os.Root` refuses escapes as a second layer | `fsroot_test.go`, `file.feature` |
+| I | Symlink inside a root points outside it (`/etc/passwd`) | `os.Root` resolves every component inside the root and rejects symlinks that escape | `fsroot_test.go`, `file.feature` |
+| I | An operator exposes a project or home directory and its dotfiles (`.env`, `.git/config`, `.aws/credentials`, `.ssh/id_rsa`) become queryable; the CSV decoder happily returns `KEY=value` lines as rows | `fsroot.CleanPath` rejects any cleaned segment starting with `.` before any FS call (FR-011 AC3, B-048). The rule applies to the requested path; a symlink inside the root whose *target* is a dotfile is content the operator (or whoever can write the root) placed there, see residual risks | `fsroot_test.go` (`TestCleanPathRejectsHiddenSegments`), `file.feature` |
+| S/R | A path with bidi controls (e.g. U+202E) displays as `report.csv` in errors, `meta.executedQuery`, the UI and future audit logs while naming a different file | Bidi controls rejected in `CleanPath` (FR-011 AC3); other control characters already were | `fsroot_test.go`, `file.feature` |
+| I | Reading devices, FIFOs or directories (e.g. a FIFO blocks forever, `/dev/zero` never ends) | Only regular files: mode checked on the opened handle; FIFOs opened non-blocking by `os.Root` are rejected before any read | `fsroot_test.go` |
+| T | TOCTOU: file swapped or grown between check and read | Size and type are checked with `Stat` on the opened handle, and the reader is capped at the limit (+1 byte to detect growth → error); after the cap trips the reader keeps returning `(0, ErrTooLarge)` so buffered/retrying consumers cannot panic on a negative count | `fsroot_test.go` |
+| D | Huge file, very long lines or a wide CSV exhausts memory | `fileMaxBytes` cap (default 64 MiB); 1024-column cap enforced by a streaming, quote-aware guard before `encoding/csv` allocates the record (a 1-record file of commas would otherwise allocate >100× its size); row/byte limits stop collection early and flag truncation, and a query that sets no limits gets the source defaults (1M rows / 64 MiB) instead of "unlimited"; context cancellation checked during decode | `csv_test.go`, `file.feature` |
+| D | Crafted CSV whose columns change inferred type on different rows forces repeated full re-conversion (CPU/allocation amplification, quadratic in column count) | Inference streams over column-wise state and re-converts only the column whose type changed; each column changes type at most four times, so every cell is converted at most five times (a 182 KiB staggered 128-column file went from ~924 MiB allocated to ~22 MiB) | `csv_test.go` (`TestStaggeredTypeChangesStayLinear`) |
+| I | Error messages disclose the server's directory layout | Errors carry the relative path and a stable kind; the absolute root path is never included | `file_test.go` |
+| E | A query names a root the instance is not configured for | The root comes only from the instance's `jsonData.root`, never from the query body; unknown query keys are rejected | `file_test.go` |
+| S/R | Unauthenticated users read files | Out of scope until M3: the query API (B-014) will require an authenticated Viewer and audit-log reads (B-020, NFR-AUD-001). Until then roots should only contain non-sensitive data | — |
+
+Toolchain dependency: `os.Root` in Go 1.24.0 let a symlink to `../` inside a root reach
+files in the parent directory (caught by `TestOpenErrors` in CI's minimum-version job).
+`go.mod` therefore requires Go ≥ 1.24.7, so dv cannot be built with an affected
+standard library; CI keeps testing both that minimum and `stable`.
+
+Residual risks: CSV formula injection matters on *export* (not implemented yet; the
+exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
+bombs are not reachable; decompression must enforce the same output cap when added.
+Inference reads the whole (capped) file into memory before building columns.
+Hard links: `os.Root` confines path *resolution*, but a hard link inside a root to a file
+elsewhere on the same file system is an ordinary regular file and is read. Creating one
+needs write access to the root, and with the Linux default `fs.protected_hardlinks=1` the
+creator must own or be able to read and write the target, so it grants nothing that writer
+could not already copy in. Operators should mount roots read-only (as `docker-compose.yml`
+does) and not give untrusted users write access to them. The same applies to symlinks
+inside a root that point at hidden files in that root.
 
 ## Planned features (threats to model at implementation time)
 
-- **F-03 File sources (M2):** path traversal, symlink escape, zip bombs, CSV formula injection on export, memory exhaustion → `os.Root`, size/row caps, streaming parsers.
 - **F-04 AuthN/RBAC (M3):** credential stuffing, session fixation, CSRF, privilege escalation, IDOR → Argon2id, rotating session IDs, SameSite=strict cookies + CSRF tokens, server-side RBAC, object-level checks.
 - **F-05 Secrets (M3):** key exposure, secrets in logs/responses → envelope encryption (AES-256-GCM, KEK from env/KMS), write-only API fields, slog redaction.
 - **F-06 SQL sources (M4):** SQL injection, expensive queries, data exfiltration → parameterized queries, read-only transactions, statement timeouts, row limits.

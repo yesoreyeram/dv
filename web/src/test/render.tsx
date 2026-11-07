@@ -9,6 +9,7 @@ type Responder = (path: string) => { status: number; body: unknown } | Error;
 export const fixtures = {
   version: { version: "1.2.3", commit: "abc1234", buildDate: "2026-11-07", goVersion: "go1.24.7" },
   ready: { status: "ready", checks: {} },
+  plugins: { sources: [], formats: [] },
   openapi: {
     openapi: "3.1.0",
     info: { title: "dv API", version: "0.1.0" },
@@ -29,6 +30,8 @@ export const defaultResponder: Responder = (path) => {
       return { status: 200, body: fixtures.ready };
     case "/api/openapi.json":
       return { status: 200, body: fixtures.openapi };
+    case "/api/v1/plugins":
+      return { status: 200, body: fixtures.plugins };
     default:
       return { status: 404, body: { error: { code: "not_found" } } };
   }

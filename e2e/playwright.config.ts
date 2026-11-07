@@ -1,8 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import { defineBddConfig } from "playwright-bdd";
 
 const port = process.env.DV_E2E_PORT ?? "18080";
 const baseURL = `http://127.0.0.1:${port}`;
+// File roots must be absolute (FR-011 AC1).
+const samples = fileURLToPath(new URL("../deploy/samples", import.meta.url));
 
 const testDir = defineBddConfig({
   features: "../features/ui/*.feature",
@@ -36,6 +39,7 @@ export default defineConfig({
       DV_LOG_LEVEL: "warn",
       DV_RATE_LIMIT_RPS: "500",
       DV_RATE_LIMIT_BURST: "1000",
+      DV_FILE_ROOTS: `samples=${samples}`,
     },
   },
 });

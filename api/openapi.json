@@ -8,7 +8,8 @@
   "servers": [{ "url": "/" }],
   "tags": [
     { "name": "system", "description": "Health, readiness and build information" },
-    { "name": "meta", "description": "API description" }
+    { "name": "meta", "description": "API description" },
+    { "name": "plugins", "description": "Data-source and format plugins (ADR-0002)" }
   ],
   "paths": {
     "/healthz": {
@@ -42,6 +43,18 @@
         "description": "Version, commit, build date and Go version of the running server. (FR-003)",
         "responses": {
           "200": { "description": "Build information", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BuildInfo" } } } },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/v1/plugins": {
+      "get": {
+        "tags": ["plugins"],
+        "operationId": "listPlugins",
+        "summary": "Plugin catalogue",
+        "description": "Data-source and format plugin types compiled into this server, sorted by ID. Static public metadata only. (FR-015)",
+        "responses": {
+          "200": { "description": "Plugin catalogue", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PluginCatalog" } } } },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
@@ -82,6 +95,38 @@
           "commit": { "type": "string", "examples": ["abc1234"] },
           "buildDate": { "type": "string", "examples": ["2026-11-07T00:00:00Z"] },
           "goVersion": { "type": "string", "examples": ["go1.24.7"] }
+        }
+      },
+      "PluginCatalog": {
+        "type": "object",
+        "required": ["sources", "formats"],
+        "additionalProperties": false,
+        "properties": {
+          "sources": { "type": "array", "items": { "$ref": "#/components/schemas/SourcePlugin" } },
+          "formats": { "type": "array", "items": { "$ref": "#/components/schemas/FormatPlugin" } }
+        }
+      },
+      "SourcePlugin": {
+        "type": "object",
+        "required": ["id", "name", "description", "capabilities"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$", "examples": ["postgres"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "FormatPlugin": {
+        "type": "object",
+        "required": ["id", "name", "description", "mediaTypes", "extensions"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$", "examples": ["csv"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "mediaTypes": { "type": "array", "items": { "type": "string" } },
+          "extensions": { "type": "array", "items": { "type": "string" } }
         }
       },
       "Error": {

@@ -11,9 +11,9 @@ Feature: Application shell
 
   Scenario: Navigating between sections
     Given I open the app at "/"
-    When I click the navigation link "Data sources"
-    Then the page heading is "Data sources"
-    And the navigation link "Data sources" is marked as the current page
+    When I click the navigation link "Explore"
+    Then the page heading is "Explore"
+    And the navigation link "Explore" is marked as the current page
     And I see the text "Planned for milestone M2"
 
   Scenario: Skip link is the first focusable element

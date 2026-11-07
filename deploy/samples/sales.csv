@@ -1,0 +1,7 @@
+time,region,orders,revenue,refunded
+2026-11-01T00:00:00Z,emea,128,10240.50,false
+2026-11-01T00:00:00Z,apac,94,7012.00,false
+2026-11-02T00:00:00Z,emea,141,11320.75,true
+2026-11-02T00:00:00Z,apac,101,7790.25,false
+2026-11-03T00:00:00Z,emea,133,10688.00,false
+2026-11-03T00:00:00Z,apac,97,7301.10,false

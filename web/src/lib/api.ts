@@ -23,6 +23,28 @@ export interface OpenAPIDocument {
   paths: Record<string, Record<string, OpenAPIOperation>>;
 }
 
+/** Public metadata of a data-source plugin type (FR-015). */
+export interface SourcePlugin {
+  id: string;
+  name: string;
+  description: string;
+  capabilities: string[];
+}
+
+/** Public metadata of a format plugin (FR-015). */
+export interface FormatPlugin {
+  id: string;
+  name: string;
+  description: string;
+  mediaTypes: string[];
+  extensions: string[];
+}
+
+export interface PluginCatalog {
+  sources: SourcePlugin[];
+  formats: FormatPlugin[];
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -62,6 +84,12 @@ export const readinessQuery = queryOptions({
   queryKey: ["system", "readiness"],
   queryFn: ({ signal }) => fetchJSON<Readiness>("/readyz", { signal, acceptStatuses: [503] }),
   refetchInterval: 15_000,
+});
+
+export const pluginsQuery = queryOptions({
+  queryKey: ["plugins", "catalog"],
+  queryFn: ({ signal }) => fetchJSON<PluginCatalog>("/api/v1/plugins", { signal }),
+  staleTime: 5 * 60_000,
 });
 
 export const openapiQuery = queryOptions({
