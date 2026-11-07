@@ -20,3 +20,14 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Shipped ([PR #3](https://github.com/yesoreyeram/dv/pull/3), `feat/frame-plugin-registry`): FR-010 and new FR-015 with acceptance criteria, threat model F-08, ADR-0002/0003 implementation notes; `internal/frame` (typed columns, atomic appends, strict wire codec, row/byte-limited builder), `internal/plugin` (interfaces, frozen registry, readiness check, redacted `SecureValues`), `GET /api/v1/plugins`, TS frame decoder, Data sources page. 25 godog scenarios (19 API + 6 core), 48 Vitest tests, 12 UI BDD scenarios incl. axe; Go coverage frame 98.3 %, plugin 98.7 %.
 - Not verified locally: govulncheck (golang.org blocked; no new Go deps), gitleaks, Docker build — left to CI.
 - Next: B-012 CSV/TSV format + file source under `os.Root` (introduces B-037), then B-013 JSON and B-014 query endpoint.
+
+## 2026-11-07 ~19:30 UTC — B-035 npm advisory fix + stricter audit gate on the open stack (no new PR)
+- Triage: PRs #2, #3, #4 open and unmerged, all 7 CI checks green on each, every review finding addressed (the one open thread on #2 is outdated and already answered in 9c0b364), `main` unchanged. Three or more open, so per the run rules this run improves the stack instead of opening a new PR.
+- Planned: B-035, the only known advisory in the tree (moderate `minimatch` GHSA-g3hv-75wg-m249, dev-only via typescript-eslint), owned by PR #2. Requirements first (47254f3): NFR-SEC-010 AC1–AC4.
+- Shipped on PR #2 ([#2](https://github.com/yesoreyeram/dv/pull/2)), then merged up into #3 and #4 (append-only, stack order unchanged):
+  - Scoped override `@typescript-eslint/typescript-estree>minimatch` → `11.0.3` in `pnpm-workspace.yaml` (typescript-estree 8.72.1 pins `^10.2.2`; only 11.0.1+ is patched). Listed with its advisory and review trigger in `SECURITY.md`.
+  - Audit gate tightened in CI and `make audit`: production deps fail on any advisory (`--prod --audit-level low`), all deps fail on moderate+. Negative control: the previous lockfile fails the new gate (exit 1) but passed the old high-only gate (exit 0).
+  - Compatibility: typescript-estree calls `minimatch(path, pattern, {dot: true})` only (and only with `allowDefaultProject`, which we do not use); 80 pattern/path cases give identical results on 10.2.6 and 11.0.3.
+- Evidence: `pnpm audit` clean at both levels; `pnpm install --frozen-lockfile` OK; ESLint, tsc, Prettier clean; Vitest 31/31; web build + bundle budget pass (106.7 KB JS gzip); `make build` + run, `/readyz` ready. Screenshots: `docs/screenshots/feat-m0-foundation/run9-*`. No Go changes.
+- Not verified locally: govulncheck, godog, gitleaks, Docker build (golang.org/gopkg.in blocked, no daemon) — left to CI.
+- Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 + B-040, then B-013 JSON. Still blocked here by the sandbox: B-030 (Go bump) and B-033 (`go mod tidy -diff`).

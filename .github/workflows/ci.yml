@@ -79,8 +79,12 @@ jobs:
       - run: pnpm --filter web run build
       - name: Bundle-size budget (NFR-PERF-004)
         run: pnpm --filter web run size
-      - name: pnpm audit (high+)
-        run: pnpm audit --audit-level high
+      # NFR-SEC-010 AC1/AC2: production deps fail on any advisory,
+      # everything (dev tooling included) fails on moderate or above.
+      - name: pnpm audit (production deps, low+)
+        run: pnpm audit --prod --audit-level low
+      - name: pnpm audit (all deps, moderate+)
+        run: pnpm audit --audit-level moderate
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist

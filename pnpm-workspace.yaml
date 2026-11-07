@@ -1,3 +1,10 @@
 packages:
   - web
   - e2e
+
+# Scoped security overrides (NFR-SEC-010 AC3). Each entry is listed with its
+# advisory in SECURITY.md and removed once the parent ships a fixed range.
+overrides:
+  # GHSA-g3hv-75wg-m249 (minimatch ReDoS-style globparts amplification).
+  # typescript-estree 8.72.1 pins ^10.2.2; only 11.0.1+ is patched.
+  "@typescript-eslint/typescript-estree>minimatch": "11.0.3"
