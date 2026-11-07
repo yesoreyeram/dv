@@ -96,6 +96,51 @@ Feature: CSV and TSV files from a configured root
       | dir\..\x.csv      |
       |                   |
 
+  Scenario Outline: Hidden files and directories are never read, even when they exist
+    Given the file "<path>" contains:
+      """
+      KEY,value
+      token,s3cr3t
+      """
+    When I query the file "<path>" as CSV
+    Then the query fails as "invalid path"
+    And the error does not reveal the root directory
+
+    Examples:
+      | path                 |
+      | .env                 |
+      | .git/config          |
+      | data/.secret.csv     |
+      | .aws/credentials.csv |
+
+  Scenario: A leading "./" is not a hidden entry
+    Given the file "sales.csv" contains:
+      """
+      amount
+      1
+      """
+    When I query the file "./sales.csv"
+    Then the query succeeds with 1 frame named "sales.csv"
+
+  Scenario: Dots inside a name are allowed
+    Given the file "v1.2/report.final.csv" contains:
+      """
+      amount
+      1
+      """
+    When I query the file "v1.2/report.final.csv"
+    Then the query succeeds with 1 frame named "report.final.csv"
+
+  Scenario Outline: Paths with bidirectional control characters are rejected
+    When I query the file with the escaped path "<path>"
+    Then the query fails as "invalid path"
+
+    Examples:
+      | path                 |
+      | invoice\u202Ecsv.exe |
+      | a\u2066b.csv         |
+      | x\u200F.csv          |
+
   Scenario: A symlink that points outside the root is refused
     Given a file "secret.csv" outside the root
     And the file "link.csv" is a symlink to that outside file

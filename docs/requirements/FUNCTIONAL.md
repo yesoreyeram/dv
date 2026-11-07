@@ -157,6 +157,12 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
 - AC3: query paths are relative, `/`-separated and at most 1024 bytes. Empty paths, absolute
   paths, `..` segments, backslashes, NUL and control characters are rejected before any file
   system access. Symlinks that resolve outside the root are rejected by `os.Root`.
+  Hidden entries are never read: a path with any segment that starts with `.` after
+  cleaning (`.env`, `.git/config`, `data/.secret.csv`) is rejected as an invalid path, so
+  exposing a project directory does not expose its dotfiles (`./a.csv` still names `a.csv`).
+  Unicode bidirectional controls (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069) are
+  rejected so a path cannot display differently from the file it names in errors,
+  `meta.executedQuery` or audit logs (CVE-2021-42574 "Trojan Source" class).
 - AC4: only regular files are read. The size is checked on the opened handle (no
   check-then-open race) against `fileMaxBytes` (default 64 MiB, `DV_FILE_MAX_BYTES`) and
   enforced again while reading, so a file that grows is still capped.

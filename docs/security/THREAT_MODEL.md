@@ -81,6 +81,8 @@ instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → p
 | --- | --- | --- | --- |
 | I/T | Path traversal (`../`, absolute paths, `C:\`, encoded separators) reads files outside the root | `fsroot.CleanPath` rejects empty/absolute paths, `..` segments, backslashes, NUL and control characters before any FS call; `os.Root` refuses escapes as a second layer | `fsroot_test.go`, `file.feature` |
 | I | Symlink inside a root points outside it (`/etc/passwd`) | `os.Root` resolves every component inside the root and rejects symlinks that escape | `fsroot_test.go`, `file.feature` |
+| I | An operator exposes a project or home directory and its dotfiles (`.env`, `.git/config`, `.aws/credentials`, `.ssh/id_rsa`) become queryable; the CSV decoder happily returns `KEY=value` lines as rows | `fsroot.CleanPath` rejects any cleaned segment starting with `.` before any FS call (FR-011 AC3, B-048). The rule applies to the requested path; a symlink inside the root whose *target* is a dotfile is content the operator (or whoever can write the root) placed there, see residual risks | `fsroot_test.go` (`TestCleanPathRejectsHiddenSegments`), `file.feature` |
+| S/R | A path with bidi controls (e.g. U+202E) displays as `report.csv` in errors, `meta.executedQuery`, the UI and future audit logs while naming a different file | Bidi controls rejected in `CleanPath` (FR-011 AC3); other control characters already were | `fsroot_test.go`, `file.feature` |
 | I | Reading devices, FIFOs or directories (e.g. a FIFO blocks forever, `/dev/zero` never ends) | Only regular files: mode checked on the opened handle; FIFOs opened non-blocking by `os.Root` are rejected before any read | `fsroot_test.go` |
 | T | TOCTOU: file swapped or grown between check and read | Size and type are checked with `Stat` on the opened handle, and the reader is capped at the limit (+1 byte to detect growth → error); after the cap trips the reader keeps returning `(0, ErrTooLarge)` so buffered/retrying consumers cannot panic on a negative count | `fsroot_test.go` |
 | D | Huge file, very long lines or a wide CSV exhausts memory | `fileMaxBytes` cap (default 64 MiB); 1024-column cap enforced by a streaming, quote-aware guard before `encoding/csv` allocates the record (a 1-record file of commas would otherwise allocate >100× its size); row/byte limits stop collection early and flag truncation, and a query that sets no limits gets the source defaults (1M rows / 64 MiB) instead of "unlimited"; context cancellation checked during decode | `csv_test.go`, `file.feature` |
@@ -98,6 +100,13 @@ Residual risks: CSV formula injection matters on *export* (not implemented yet; 
 exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
 bombs are not reachable; decompression must enforce the same output cap when added.
 Inference reads the whole (capped) file into memory before building columns.
+Hard links: `os.Root` confines path *resolution*, but a hard link inside a root to a file
+elsewhere on the same file system is an ordinary regular file and is read. Creating one
+needs write access to the root, and with the Linux default `fs.protected_hardlinks=1` the
+creator must own or be able to read and write the target, so it grants nothing that writer
+could not already copy in. Operators should mount roots read-only (as `docker-compose.yml`
+does) and not give untrusted users write access to them. The same applies to symlinks
+inside a root that point at hidden files in that root.
 
 ## Planned features (threats to model at implementation time)
 
