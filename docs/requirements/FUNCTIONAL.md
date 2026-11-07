@@ -65,7 +65,9 @@ readiness checks (database, plugin registry, … as they are added).
 - AC4: check failure details are reduced to `pass`/`fail`; error text is logged server-side, never returned.
 - AC5: concurrent probes share one evaluation, and a completed result is reused for a short TTL
   (`DV_READINESS_CACHE_TTL`, default 1 s, `0` disables). A probe flood therefore runs each check at
-  most once per TTL. Draining is never cached: once shutdown starts, the next probe returns `503`.
+  most once per TTL. Passing and failing results are both reused, so a dependency recovering or
+  failing shows up within one TTL. Draining is never cached: once shutdown starts, the next probe
+  returns `503`.
 - AC6: a check that ignores its context and is still running from an earlier probe is not started
   again; it reports `fail` until it returns. This keeps at most one stuck goroutine per check (e.g.
   `os.Stat` on a hung network mount).
