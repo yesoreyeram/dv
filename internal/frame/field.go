@@ -179,14 +179,33 @@ func finiteOrNil(f float64) any {
 	return f
 }
 
-// estimateSize approximates the in-memory size of one value for byte limits.
+// Per-value memory estimates on 64-bit platforms. Values live in a []any, so every value
+// costs a 16-byte interface slot plus whatever the interface points at.
+const (
+	sizeSlot      = 16 // interface header in []any
+	sizeBoxedWord = 8  // heap box for int64/float64
+	sizeStringHdr = 16 // string header (pointer + length)
+	sizeSliceHdr  = 24 // slice header for json.RawMessage
+	sizeTime      = 24 // time.Time (wall, ext, loc)
+)
+
+// estimateSize approximates the retained memory of one value for byte limits
+// (NFR-PERF-003). It errs high rather than low: a byte limit is a memory guard, so an
+// estimate below the real cost lets results overshoot it. Growth slack in the backing
+// []any (append doubling) is not counted; see ADR-0003.
 func estimateSize(v any) int {
 	switch x := v.(type) {
+	case nil, bool:
+		return sizeSlot
 	case string:
-		return len(x) + 16
+		return sizeSlot + sizeStringHdr + len(x)
 	case json.RawMessage:
-		return len(x) + 16
+		return sizeSlot + sizeSliceHdr + len(x)
+	case []byte:
+		return sizeSlot + sizeSliceHdr + len(x)
+	case time.Time, *time.Time:
+		return sizeSlot + sizeTime
 	default:
-		return 8
+		return sizeSlot + sizeBoxedWord
 	}
 }

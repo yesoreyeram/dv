@@ -28,7 +28,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | --- | --- | --- | --- | --- |
 | NFR-PERF-001 | Health/readiness endpoints p99 < 10 ms on a single core under 500 rps. | S | Benchmark (`go test -bench`) | Planned |
 | NFR-PERF-002 | Stateless API nodes; horizontal scaling behind a load balancer (state in DB/cache). | M | Architecture (ADR-0001) | In progress |
-| NFR-PERF-003 | Query execution is streaming/bounded: row and byte limits per query, configurable. | M | Tests | In progress (frame builder limits) |
+| NFR-PERF-003 | Query execution is streaming/bounded: row and byte limits per query, configurable. The byte limit must not under-estimate retained memory by more than 1.6×, and sources apply safe default limits when a query sets none. | M | Tests | In progress (frame builder limits) |
 | NFR-PERF-004 | Initial UI JS bundle ≤ 250 KB gzip; routes code-split as they grow. | S | Build size check | Planned |
 
 ## Availability & resilience (AVAIL)
