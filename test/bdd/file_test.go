@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -185,6 +186,17 @@ func initializeFileScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a file size cap of (\d+) bytes$`, func(n int) error { w.maxBytes = int64(n); return nil })
 
 	sc.Step(`^I query the file "([^"]*)"$`, func(p string) error {
+		return w.query(map[string]any{"path": p})
+	})
+	sc.Step(`^I query the file "([^"]*)" as CSV$`, func(p string) error {
+		return w.query(map[string]any{"path": p, "format": "csv"})
+	})
+	// Gherkin tables cannot show invisible characters, so this step takes a Go-escaped path.
+	sc.Step(`^I query the file with the escaped path "([^"]*)"$`, func(escaped string) error {
+		p, err := strconv.Unquote(`"` + escaped + `"`)
+		if err != nil {
+			return fmt.Errorf("escaped path %q: %w", escaped, err)
+		}
 		return w.query(map[string]any{"path": p})
 	})
 	sc.Step(`^I query the file "([^"]*)" with field type "([^"]*)" set to "([^"]*)"$`, func(p, field, typ string) error {

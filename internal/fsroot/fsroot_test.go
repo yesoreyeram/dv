@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
+	"unicode"
 )
 
 func write(t *testing.T, path, content string) {
@@ -42,9 +44,14 @@ func TestCleanPath(t *testing.T) {
 		"dir/./a.csv":   "dir/a.csv",
 		"ünïcødé.csv":   "ünïcødé.csv",
 		"dir/a..b.csv":  "dir/a..b.csv",
-		"...csv":        "...csv",
 		"trailing/x/":   "trailing/x",
 		"spaces in.csv": "spaces in.csv",
+		"v1.2/r.final":  "v1.2/r.final",
+		"dir./a.csv":    "dir./a.csv",
+		// Zero-width (non-)joiners are needed in Persian and Indic names; they are not
+		// bidi controls and stay allowed.
+		"\u0645\u06cc\u200c\u062e\u0648\u0627\u0645.csv": "\u0645\u06cc\u200c\u062e\u0648\u0627\u0645.csv",
+		"\u0915\u094d\u200d\u0937.csv":                   "\u0915\u094d\u200d\u0937.csv",
 	}
 	for in, want := range ok {
 		got, err := CleanPath(in)
@@ -60,6 +67,55 @@ func TestCleanPath(t *testing.T) {
 	for _, in := range bad {
 		if _, err := CleanPath(in); !errors.Is(err, ErrInvalidPath) {
 			t.Errorf("CleanPath(%q) err = %v, want ErrInvalidPath", in, err)
+		}
+	}
+}
+
+func TestCleanPathRejectsHiddenSegments(t *testing.T) {
+	for _, in := range []string{
+		".env", ".git/config", "data/.secret.csv", ".aws/credentials.csv", "a/.b/c.csv",
+		"./.env", "dir/./.hidden", "...csv", ".hidden/", "a//.x",
+	} {
+		_, err := CleanPath(in)
+		if !errors.Is(err, ErrInvalidPath) || !strings.Contains(err.Error(), "hidden") {
+			t.Errorf("CleanPath(%q) err = %v, want a hidden-entry ErrInvalidPath", in, err)
+		}
+	}
+}
+
+func TestCleanPathRejectsBidiControls(t *testing.T) {
+	for _, c := range []rune{0x061C, 0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069} {
+		in := "invoice" + string(c) + "vsc.exe"
+		if _, err := CleanPath(in); !errors.Is(err, ErrInvalidPath) {
+			t.Errorf("CleanPath(%+q) err = %v, want ErrInvalidPath", in, err)
+		}
+	}
+}
+
+func TestOpenRefusesExistingHiddenFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".env", ".git/config"} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte("token=s3cr3t\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roots, err := Open(map[string]string{"r": dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = roots.Close() })
+	for _, name := range []string{".env", ".git/config", "./.env"} {
+		f, err := roots.Open("r", name, 0)
+		if err == nil {
+			_ = f.Close()
+			t.Errorf("Open(%q) succeeded, want ErrInvalidPath", name)
+			continue
+		}
+		if !errors.Is(err, ErrInvalidPath) || strings.Contains(err.Error(), dir) {
+			t.Errorf("Open(%q) err = %v, want ErrInvalidPath without the root directory", name, err)
 		}
 	}
 }
@@ -320,4 +376,38 @@ func TestScrubAndClassify(t *testing.T) {
 	if isEscape(nil) {
 		t.Fatal("nil is not an escape")
 	}
+}
+
+// FuzzCleanPath pins the invariants of every accepted path: it is a valid fs path (no
+// "..", no leading "/", no empty segments), has no hidden segment, no backslash and no
+// control or bidi characters, fits MaxPathBytes, and cleaning is idempotent.
+func FuzzCleanPath(f *testing.F) {
+	for _, s := range []string{"a.csv", "./a/b.csv", ".env", "a/../b", "x\u202e.csv", `a\b`, "a//b/", "...", "ü/ß.tsv"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, in string) {
+		got, err := CleanPath(in)
+		if err != nil {
+			if !errors.Is(err, ErrInvalidPath) {
+				t.Fatalf("CleanPath(%q) err = %v, want ErrInvalidPath", in, err)
+			}
+			return
+		}
+		if !fs.ValidPath(got) || got == "." || len(got) > MaxPathBytes || strings.ContainsRune(got, '\\') {
+			t.Fatalf("CleanPath(%q) = %q is not a valid relative path", in, got)
+		}
+		for _, seg := range strings.Split(got, "/") {
+			if strings.HasPrefix(seg, ".") {
+				t.Fatalf("CleanPath(%q) = %q has a hidden segment", in, got)
+			}
+		}
+		for _, c := range got {
+			if unicode.IsControl(c) || unicode.Is(unicode.Bidi_Control, c) || c == unicode.ReplacementChar {
+				t.Fatalf("CleanPath(%q) = %q contains %U", in, got, c)
+			}
+		}
+		if again, err := CleanPath(got); err != nil || again != got {
+			t.Fatalf("CleanPath(%q) = %q, %v; not idempotent", got, again, err)
+		}
+	})
 }

@@ -137,7 +137,9 @@ func (r *Roots) ReadinessCheck(context.Context) error {
 // CleanPath validates a client-supplied path inside a root and returns its clean form.
 // It rejects, without touching the file system: empty paths, paths longer than
 // MaxPathBytes, absolute paths, ".." segments, backslashes, NUL and other control
-// characters, and paths that clean to the root itself.
+// characters, Unicode bidirectional controls, paths that clean to the root itself, and
+// hidden entries (any cleaned segment starting with "."), so dotfiles such as .env or
+// .git/config in an exposed directory are never read (FR-011 AC3).
 func CleanPath(p string) (string, error) {
 	switch {
 	case p == "":
@@ -150,7 +152,7 @@ func CleanPath(p string) (string, error) {
 		return "", fmt.Errorf("path %q must use '/' as separator: %w", p, ErrInvalidPath)
 	}
 	for _, c := range p {
-		if c == unicode.ReplacementChar || unicode.IsControl(c) {
+		if c == unicode.ReplacementChar || unicode.IsControl(c) || isBidiControl(c) {
 			return "", fmt.Errorf("path contains control or invalid characters: %w", ErrInvalidPath)
 		}
 	}
@@ -163,7 +165,21 @@ func CleanPath(p string) (string, error) {
 	if clean == "." || !fs.ValidPath(clean) {
 		return "", fmt.Errorf("path %q does not name a file: %w", p, ErrInvalidPath)
 	}
+	// After Clean, "." segments are gone and ".." was rejected above, so a leading dot
+	// always marks a hidden entry.
+	for _, seg := range strings.Split(clean, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return "", fmt.Errorf("path %q names a hidden file or directory: %w", p, ErrInvalidPath)
+		}
+	}
 	return clean, nil
+}
+
+// isBidiControl reports whether c is a Unicode bidirectional formatting control
+// (Bidi_Control property). They let text display in a different order than it is stored,
+// so a path could look like another file in errors, executed queries and logs.
+func isBidiControl(c rune) bool {
+	return unicode.Is(unicode.Bidi_Control, c)
 }
 
 // File is an opened regular file whose reads are capped at the size limit.
