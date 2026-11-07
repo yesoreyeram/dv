@@ -52,3 +52,28 @@ Feature: Health probes
     Then the response status should be 503
     And the JSON field "checks.mount" should be "fail"
     And the readiness check "mount" should have been started 1 time
+
+  @NFR-PERF-001
+  Scenario: Liveness stays fast under sustained probe load
+    Given the dv server is running on a TCP listener
+    When I probe "/healthz" at 500 requests per second for 2 seconds on a single core
+    Then every probe should return status 200
+    And the p99 probe latency should be below 10 ms
+
+  @NFR-PERF-001
+  Scenario: Readiness stays fast under sustained probe load
+    Given the dv server is running on a TCP listener
+    And the readiness check "plugins" passes
+    When I probe "/readyz" at 500 requests per second for 2 seconds on a single core
+    Then every probe should return status 200
+    And the p99 probe latency should be below 10 ms
+
+  @NFR-PERF-001 @FR-002
+  Scenario: A slow readiness check runs once per cache window under probe load
+    Given the dv server is running on a TCP listener
+    And the readiness check "plugins" takes 50 ms and counts its calls
+    When I probe "/readyz" at 500 requests per second for 2 seconds on a single core
+    Then every probe should return status 200
+    And the readiness check "plugins" should have run at most 3 times
+    And the p50 probe latency should be below 10 ms
+    And the p99 probe latency should be below 60 ms

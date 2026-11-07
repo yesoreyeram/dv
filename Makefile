@@ -59,7 +59,7 @@ fmt: ## Format Go and web sources
 	pnpm run format
 
 ## ---------- tests ----------
-.PHONY: test test-go test-web bdd bdd-api bdd-ui e2e
+.PHONY: test test-go test-web bdd bdd-api bdd-ui e2e bench perf size
 test: test-go test-web ## Unit tests (Go with -race, Vitest with coverage)
 
 test-go: ## Go unit tests with race detector and coverage
@@ -68,6 +68,15 @@ test-go: ## Go unit tests with race detector and coverage
 
 test-web: ## Vitest unit tests with coverage thresholds
 	pnpm --filter web run test
+
+bench: ## Probe benchmarks on one core (NFR-PERF-001 AC3)
+	go test -run '^$$' -bench . -benchmem -cpu 1 ./internal/server/
+
+perf: ## Probe latency under 500 rps open-loop load (NFR-PERF-001 AC1/AC2)
+	go test -count=1 -v -run 'UnderLoad' ./internal/server/
+
+size: build-web ## Initial JS/CSS gzip budget (NFR-PERF-004)
+	pnpm --filter web run size
 
 bdd: bdd-api bdd-ui ## All Gherkin suites
 

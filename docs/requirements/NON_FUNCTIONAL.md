@@ -26,10 +26,10 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 
 | ID | Requirement | Priority | Verification | Status |
 | --- | --- | --- | --- | --- |
-| NFR-PERF-001 | Health/readiness endpoints p99 < 10 ms on a single core under 500 rps. | S | Benchmark (`go test -bench`) | Planned |
+| NFR-PERF-001 | Health/readiness endpoints p99 < 10 ms on a single core under 500 rps. **AC1:** an open-loop load of 500 rps for ≥ 2 s against `/healthz` and `/readyz` (full middleware chain, real TCP, `GOMAXPROCS=1`) yields only 200s and p99 < 10 ms. **AC2:** under the same load with a readiness check that takes 50 ms, the check runs at most once per readiness-cache TTL (+1), p50 stays < 10 ms and p99 stays < check time + 10 ms (only probes that arrive during a refresh wait). **AC3:** `go test -bench` benchmarks exist for both probes so regressions are visible (`make bench`). | S | `internal/server` perf tests + `features/api/health.feature` (CI, every PR); `make bench`, `make perf` | In progress |
 | NFR-PERF-002 | Stateless API nodes; horizontal scaling behind a load balancer (state in DB/cache). | M | Architecture (ADR-0001) | In progress |
 | NFR-PERF-003 | Query execution is streaming/bounded: row and byte limits per query, configurable. The byte limit must not under-estimate retained memory by more than 1.6×, and sources apply safe default limits when a query sets none. | M | Tests | In progress (frame builder limits) |
-| NFR-PERF-004 | Initial UI JS bundle ≤ 250 KB gzip; routes code-split as they grow. | S | Build size check | Planned |
+| NFR-PERF-004 | Initial UI JS bundle ≤ 250 KB gzip; routes code-split as they grow. **AC1:** after `vite build`, the gzip size of every script `index.html` loads up front (entry `<script type="module">` plus `<link rel="modulepreload">`) is summed, and the build fails if it exceeds 250 KB (256 000 bytes); the check also fails if no initial script is found, so a broken build cannot pass vacuously. **AC2:** initial CSS is reported (budget 50 KB gzip) and enforced the same way. | S | `pnpm --filter web run size` in CI after the build | In progress |
 
 ## Availability & resilience (AVAIL)
 
