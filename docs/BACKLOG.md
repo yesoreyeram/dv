@@ -29,5 +29,5 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-032 | Bundle-size budget check in CI | M1 | NFR-PERF-004 | Todo |
 | B-033 | Enforce `go mod tidy -diff` in CI (go.sum lacks hashes for test-only deps of godog because this run's sandbox could not reach proxy.golang.org) | M0 | NFR-SEC-014 | Todo |
 | B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
-| B-035 | Triage moderate `minimatch` advisory (dev-only, via typescript-eslint in e2e) | M0 | NFR-SEC-010 | Todo |
+| B-035 | Fix moderate `minimatch` advisory GHSA-g3hv-75wg-m249 (dev-only, via typescript-eslint) with a scoped override; tighten the audit gate (prod: low+, all: moderate+) | M0 | NFR-SEC-010 AC1–AC4 | In review (PR #2) |
 | B-036 | E2E scenario asserting zero CSP violations in the browser console | M1 | NFR-SEC-007 | Todo |
