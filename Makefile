@@ -73,7 +73,7 @@ bench: ## Probe benchmarks on one core (NFR-PERF-001 AC3)
 	go test -run '^$$' -bench . -benchmem -cpu 1 ./internal/server/
 
 perf: ## Probe latency under 500 rps open-loop load (NFR-PERF-001 AC1/AC2)
-	go test -count=1 -v -run 'UnderLoad' ./internal/server/
+	go test -tags perf -count=1 -v -run 'UnderLoad' ./internal/server/
 
 size: build-web ## Initial JS/CSS gzip budget (NFR-PERF-004)
 	pnpm --filter web run size
