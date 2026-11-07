@@ -8,6 +8,7 @@ BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG        := github.com/yesoreyeram/dv/internal/buildinfo
 LDFLAGS    := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).BuildDate=$(BUILD_DATE)
 ADDR       ?= 127.0.0.1:8080
+FILE_ROOTS ?= samples=$(CURDIR)/deploy/samples
 
 .DEFAULT_GOAL := help
 
@@ -34,11 +35,11 @@ build-web: ## Build the SPA into web/dist
 ## ---------- run ----------
 .PHONY: run dev
 run: build ## Build and run the single binary serving API + UI on $(ADDR)
-	DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text ./bin/dv
+	DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text DV_FILE_ROOTS=$(FILE_ROOTS) ./bin/dv
 
 dev: ## Run the API (go run) and the Vite dev server with HMR (proxying /api)
 	@trap 'kill 0' EXIT; \
-	DV_HTTP_ADDR=$(ADDR) DV_LOG_FORMAT=text DV_LOG_LEVEL=debug go run ./cmd/dv & \
+	DV_HTTP_ADDR=$(ADDR) DV_LOG_FORMAT=text DV_LOG_LEVEL=debug DV_FILE_ROOTS=$(FILE_ROOTS) go run ./cmd/dv & \
 	DV_API_URL=http://$(ADDR) pnpm --filter web run dev
 
 ## ---------- quality ----------

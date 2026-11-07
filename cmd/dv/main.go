@@ -12,8 +12,11 @@ import (
 
 	"github.com/yesoreyeram/dv/internal/buildinfo"
 	"github.com/yesoreyeram/dv/internal/config"
+	"github.com/yesoreyeram/dv/internal/fsroot"
+	"github.com/yesoreyeram/dv/internal/health"
 	"github.com/yesoreyeram/dv/internal/httpx"
 	"github.com/yesoreyeram/dv/internal/plugin"
+	"github.com/yesoreyeram/dv/internal/plugins/builtin"
 	"github.com/yesoreyeram/dv/internal/server"
 )
 
@@ -47,11 +50,23 @@ func run(ctx context.Context, args []string, src config.Source, stdout, stderr i
 	}
 	log := newLogger(cfg, stderr)
 	slog.SetDefault(log)
+	// Host-owned file roots are opened once; plugins only ever see them through
+	// fsroot.Roots (ADR-0002, NFR-SEC-006).
+	roots, err := fsroot.Open(cfg.FileRoots)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = roots.Close() }()
 	// Compiled-in plugins are registered here before the registry is frozen (ADR-0002).
-	// The first ones (CSV/TSV and JSON file sources) arrive with B-012/B-013.
 	plugins := plugin.NewRegistry()
+	if err := builtin.Register(plugins, builtin.Options{Roots: roots, FileMaxBytes: cfg.FileMaxBytes}); err != nil {
+		return err
+	}
 	plugins.Freeze()
-	srv, err := server.New(server.Options{Config: cfg, Logger: log, Build: buildinfo.Get(), Plugins: plugins})
+	checks := health.New(cfg.ReadinessCheckTimeout.Std(), log)
+	checks.Register("file-roots", roots.ReadinessCheck)
+	log.Info("plugins registered", "fileRoots", roots.Names())
+	srv, err := server.New(server.Options{Config: cfg, Logger: log, Health: checks, Build: buildinfo.Get(), Plugins: plugins})
 	if err != nil {
 		return err
 	}

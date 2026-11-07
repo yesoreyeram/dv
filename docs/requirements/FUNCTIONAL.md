@@ -26,7 +26,7 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-007 | API reference view in the UI | C | M0/M1 | In progress |
 | FR-010 | Common data-frame model | M | M2 | In progress |
 | FR-015 | Plugin registry and plugin catalogue | M | M2 | In progress |
-| FR-011 | CSV / TSV file source | M | M2 | Planned |
+| FR-011 | CSV / TSV file source | M | M2 | In progress |
 | FR-012 | JSON file source | M | M2 | Planned |
 | FR-013 | Table panel | M | M2 | Planned |
 | FR-014 | Time-series line chart panel | M | M2 | Planned |
@@ -149,10 +149,60 @@ Data-source and format plugins (ADR-0002) are compiled in and registered at star
   credentials are not supported yet and encrypted secret storage (FR-022) is planned for
   milestone M3. It must not claim encryption at rest before FR-022 ships (NFR-AUD-004).
 
-### FR-011 … FR-064
+### FR-011 — CSV / TSV file source (M)
+Operators expose directories of files to dv; editors query CSV/TSV files in them as frames.
+- AC1: operators configure named file roots (`fileRoots` in the config file or
+  `DV_FILE_ROOTS=name=/abs/dir,…`). Root names match `^[a-z][a-z0-9-]{0,62}$`; paths must be
+  absolute, existing directories. Invalid roots fail start-up (NFR-SEC-009). Each root is
+  opened once with `os.Root` (NFR-SEC-006).
+- AC2: a `file` source instance references one root by name in `jsonData.root`; unknown
+  roots or unknown `jsonData` keys fail `Validate`. `Health` fails when the root is no
+  longer accessible, and the `file-roots` readiness check covers every configured root.
+- AC3: query paths are relative, `/`-separated and at most 1024 bytes. Empty paths, absolute
+  paths, `..` segments, backslashes, NUL and control characters are rejected before any file
+  system access. Symlinks that resolve outside the root are rejected by `os.Root`.
+  Hidden entries are never read: a path with any segment that starts with `.` after
+  cleaning (`.env`, `.git/config`, `data/.secret.csv`) is rejected as an invalid path, so
+  exposing a project directory does not expose its dotfiles (`./a.csv` still names `a.csv`).
+  Unicode bidirectional controls (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069) are
+  rejected so a path cannot display differently from the file it names in errors,
+  `meta.executedQuery` or audit logs (CVE-2021-42574 "Trojan Source" class).
+- AC4: only regular files are read. The size is checked on the opened handle (no
+  check-then-open race) against `fileMaxBytes` (default 64 MiB, `DV_FILE_MAX_BYTES`) and
+  enforced again while reading, so a file that grows is still capped.
+- AC5: the format is given explicitly (`format`) or chosen by file extension (`.csv` → csv,
+  `.tsv`/`.tab` → tsv, case-insensitive). Unknown formats or extensions are rejected.
+- AC6: decoding: header row on by default (blank names become `Column N`, duplicates get a
+  ` (2)`, ` (3)` … suffix); configurable delimiter and comment character (one printable ASCII character or tab);
+  a UTF-8 BOM is stripped; rows with a different number of columns fail with the line
+  number; at most 1024 columns, enforced while bytes stream in (before a record is
+  allocated). CSV follows RFC 4180 quoting; TSV has no quoting (quotes
+  are literal data, per IANA `text/tab-separated-values`). Input after the row-limit
+  overflow record is never parsed, so it cannot fail a truncated result.
+- AC7: types are inferred per column from non-empty cells: `bool` (`true`/`false`, any
+  case), `number` (`int64` when integral, else `float64`; NaN/Inf stay strings), `time`
+  (RFC 3339, `YYYY-MM-DD`, `YYYY-MM-DD HH:MM:SS`, interpreted as UTC), else `string`. Empty
+  cells are null. `fieldTypes` overrides inference by field name; values that do not parse
+  under an override become null and the frame gets one warning notice per field with the
+  count. Inference uses only the rows the frame returns: neither the row-limit overflow
+  record nor rows dropped by the byte limit can change a column's type or the number of
+  rows returned (the longest prefix whose types are inferred from that prefix alone and
+  which fits the limits is returned). The work stays linear in the retained data: a type
+  change re-converts only that column, so each cell is converted at most five times.
+- AC8: host row/byte limits (NFR-PERF-003) apply; truncation sets `meta.truncated` with a
+  notice. A limit the query leaves at zero is replaced by the source default (host-set,
+  else 1,000,000 rows / 64 MiB estimated frame memory), so no query decodes unbounded.
+  Decoding honours context cancellation.
+- AC9: errors never reveal the operator's absolute root path; they use the relative path
+  and a stable error kind (invalid path, not found, not a regular file, too large,
+  unsupported format) so the query API (B-014) can map them to HTTP statuses.
+- AC10: frames are named after the file's base name; `meta.source` is `file` and
+  `meta.executedQuery` is `<root>:<path>`.
+
+### FR-012 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
 (see `docs/BACKLOG.md`). Draft intent:
-- **FR-011/012** Files are read only from configured root directories; size/row limits enforced; type inference with explicit overrides.
+- **FR-012** JSON files through the same `file` source and the FR-011 path/size controls; type inference with explicit overrides.
 - **FR-013/014** Panels render frames; line chart needs one time field and ≥1 numeric field.
 - **FR-020/021** Argon2id-hashed passwords, server-side sessions, CSRF protection; RBAC enforced server-side on every endpoint.
 - **FR-022** Secrets encrypted with AES-256-GCM envelope encryption; write-only through the API.

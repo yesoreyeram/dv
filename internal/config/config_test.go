@@ -5,6 +5,9 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +30,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatalf("got %+v, want defaults", cfg)
 	}
 	if lvl, _ := cfg.SlogLevel(); lvl != slog.LevelInfo {
@@ -171,6 +174,54 @@ func TestOSSource(t *testing.T) {
 	}
 	if _, err := s.ReadFile("/definitely/missing"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("readfile err = %v", err)
+	}
+}
+
+func TestFileRoots(t *testing.T) {
+	dir := t.TempDir()
+	other := t.TempDir()
+	files := map[string]string{"/etc/dv.json": `{"fileRoots":{"fromfile":"` + filepath.ToSlash(dir) + `"},"fileMaxBytes":2048}`}
+	cfg, err := Load(src(map[string]string{"DV_CONFIG_FILE": "/etc/dv.json"}, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FileRoots["fromfile"] != filepath.ToSlash(dir) || cfg.FileMaxBytes != 2048 {
+		t.Fatalf("file: %+v", cfg)
+	}
+	// The environment replaces the file's roots.
+	env := map[string]string{"DV_CONFIG_FILE": "/etc/dv.json", "DV_FILE_ROOTS": " a = " + dir + " , ,b=" + other, "DV_FILE_MAX_BYTES": "4096"}
+	cfg, err = Load(src(env, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.FileRoots, map[string]string{"a": dir, "b": other}) || cfg.FileMaxBytes != 4096 {
+		t.Fatalf("env: %+v", cfg)
+	}
+}
+
+func TestFileRootErrors(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct{ env, want string }{
+		"syntax":     {"DV_FILE_ROOTS=novalue", "name=/absolute/dir"},
+		"empty name": {"DV_FILE_ROOTS==" + dir, "name=/absolute/dir"},
+		"duplicate":  {"DV_FILE_ROOTS=a=" + dir + ",a=" + dir, "twice"},
+		"bad name":   {"DV_FILE_ROOTS=Bad=" + dir, "must match"},
+		"relative":   {"DV_FILE_ROOTS=a=rel/dir", "absolute"},
+		"missing":    {"DV_FILE_ROOTS=a=" + filepath.Join(dir, "nope"), "fileRoots.a"},
+		"not a dir":  {"DV_FILE_ROOTS=a=" + file, "not a directory"},
+		"max bytes":  {"DV_FILE_MAX_BYTES=abc", "DV_FILE_MAX_BYTES"},
+		"max small":  {"DV_FILE_MAX_BYTES=10", "fileMaxBytes"},
+	}
+	for name, c := range cases {
+		k, v, _ := strings.Cut(c.env, "=")
+		_, err := Load(src(map[string]string{k: v}, nil))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+		}
 	}
 }
 
