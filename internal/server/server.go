@@ -44,8 +44,11 @@ type route struct {
 	handler      http.HandlerFunc
 }
 
-// probePaths are exempt from rate limiting so orchestrator probes are never throttled.
-var probePaths = map[string]bool{"/healthz": true, "/readyz": true}
+// rateLimited reports whether a request path is subject to the per-client API token
+// bucket. Only /api/ is limited: probes must never be throttled, and the SPA document
+// and its assets are cheap static reads that must not spend the API allowance (with a
+// low burst, loading "/" would otherwise starve its own JS/CSS and leave a blank page).
+func rateLimited(path string) bool { return strings.HasPrefix(path, "/api/") }
 
 // New builds a server. It returns an error if the static web directory cannot be opened.
 func New(opts Options) (*Server, error) {
@@ -83,11 +86,11 @@ func New(opts Options) (*Server, error) {
 		rl := httpx.NewRateLimiter(opts.Config.RateLimitRPS, opts.Config.RateLimitBurst, 100_000, nil)
 		limitedMux := rl.Middleware(mux)
 		limited = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if probePaths[r.URL.Path] {
-				mux.ServeHTTP(w, r)
+			if rateLimited(r.URL.Path) {
+				limitedMux.ServeHTTP(w, r)
 				return
 			}
-			limitedMux.ServeHTTP(w, r)
+			mux.ServeHTTP(w, r)
 		})
 	}
 
