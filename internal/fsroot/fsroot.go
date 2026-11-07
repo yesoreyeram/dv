@@ -247,18 +247,27 @@ func scrub(err error) error {
 	return err
 }
 
-// capReader returns ErrTooLarge once more than left bytes are read.
+// capReader returns ErrTooLarge once more than left bytes are read. After the cap trips
+// it keeps returning (0, that error), so callers that retry (bufio, scanners) never see a
+// negative count, which the io.Reader contract forbids.
 type capReader struct {
 	r    io.Reader
 	left int64
 	path string
+	err  error
 }
 
 func (c *capReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.left -= int64(n)
-	if c.left < 0 {
-		return n + int(c.left), fmt.Errorf("%s grew beyond the size limit while reading: %w", c.path, ErrTooLarge)
+	if c.err != nil {
+		return 0, c.err
 	}
+	n, err := c.r.Read(p)
+	if int64(n) > c.left {
+		n = int(c.left)
+		c.left = 0
+		c.err = fmt.Errorf("%s grew beyond the size limit while reading: %w", c.path, ErrTooLarge)
+		return n, c.err
+	}
+	c.left -= int64(n)
 	return n, err
 }

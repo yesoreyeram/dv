@@ -177,14 +177,22 @@ func TestRowLimit(t *testing.T) {
 }
 
 func TestByteLimit(t *testing.T) {
-	// Raw estimate per row is len+16 = 17..18 bytes, so 100 bytes holds 5 rows.
-	fr := decode(t, NewCSV(), rows(50), plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 100}})
-	if fr.Rows() != 5 || !fr.Meta.Truncated || !strings.Contains(fr.Meta.Notices[0].Text, "byte limit") {
+	// Reader stop: raw records cost len+16 per cell, so 12-digit integers cost 28 bytes
+	// raw but only 24 in the frame. 100 bytes holds 3 raw records; the 4th trips the
+	// reader's byte limit before the builder's.
+	var b strings.Builder
+	b.WriteString("v\n")
+	for i := range 50 {
+		fmt.Fprintf(&b, "%d\n", 100000000000+i)
+	}
+	fr := decode(t, NewCSV(), b.String(), plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 100}})
+	if fr.Rows() != 3 || !fr.Meta.Truncated || len(fr.Meta.Notices) != 1 || !strings.Contains(fr.Meta.Notices[0].Text, "byte limit") {
 		t.Fatalf("rows %d meta %+v", fr.Rows(), fr.Meta)
 	}
-	// Strings are estimated the same way by the builder, so it stops first.
+	// Builder stop: a 4-byte string costs 20 raw but 36 in the frame (slot + header), so
+	// the builder stops first at 41 bytes, and only one notice is added.
 	fr = decode(t, NewCSV(), "s\naaaa\nbbbb\ncccc\n", plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 41}})
-	if fr.Rows() != 2 || len(fr.Meta.Notices) != 1 {
+	if fr.Rows() != 1 || !fr.Meta.Truncated || len(fr.Meta.Notices) != 1 {
 		t.Fatalf("rows %d notices %+v", fr.Rows(), fr.Meta.Notices)
 	}
 }

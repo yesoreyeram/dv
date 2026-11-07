@@ -42,6 +42,7 @@ type fileWorld struct {
 	rootDir  string
 	outside  string
 	maxBytes int64
+	defaults frame.Limits
 	limits   frame.Limits
 	cfg      plugin.SourceConfig
 	result   *frame.Result
@@ -63,7 +64,7 @@ func (w *fileWorld) source() (plugin.Source, func(), error) {
 		return nil, nil, err
 	}
 	reg := plugin.NewRegistry()
-	if err := builtin.Register(reg, builtin.Options{Roots: roots, FileMaxBytes: w.maxBytes}); err != nil {
+	if err := builtin.Register(reg, builtin.Options{Roots: roots, FileMaxBytes: w.maxBytes, QueryDefaults: w.defaults}); err != nil {
 		_ = roots.Close()
 		return nil, nil, err
 	}
@@ -179,6 +180,7 @@ func initializeFileScenario(sc *godog.ScenarioContext) {
 		return os.Symlink(w.outside, filepath.Join(w.rootDir, name))
 	})
 	sc.Step(`^a row limit of (\d+)$`, func(n int) error { w.limits.MaxRows = n; return nil })
+	sc.Step(`^the default row limit for queries is (\d+)$`, func(n int) error { w.defaults.MaxRows = n; return nil })
 	sc.Step(`^a file size cap of (\d+) bytes$`, func(n int) error { w.maxBytes = int64(n); return nil })
 
 	sc.Step(`^I query the file "([^"]*)"$`, func(p string) error {

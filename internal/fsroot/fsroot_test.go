@@ -1,6 +1,7 @@
 package fsroot
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -213,6 +214,68 @@ func TestCapReaderDetectsGrowth(t *testing.T) {
 	b, err := io.ReadAll(f)
 	if !errors.Is(err, ErrTooLarge) || len(b) != 8 {
 		t.Fatalf("read %d bytes, err = %v", len(b), err)
+	}
+}
+
+// chunkReader returns data in fixed-size chunks, then EOF.
+type chunkReader struct {
+	data  []byte
+	chunk int
+}
+
+func (c *chunkReader) Read(p []byte) (int, error) {
+	if len(c.data) == 0 {
+		return 0, io.EOF
+	}
+	n := min(len(p), c.chunk, len(c.data))
+	copy(p, c.data[:n])
+	c.data = c.data[n:]
+	return n, nil
+}
+
+func TestCapReaderNeverReturnsNegativeCounts(t *testing.T) {
+	c := &capReader{r: &chunkReader{data: []byte("0123456789abcdef"), chunk: 4}, left: 6, path: "x.csv"}
+	buf := make([]byte, 4)
+	var got []byte
+	var errs []error
+	for range 5 {
+		n, err := c.Read(buf)
+		if n < 0 || n > len(buf) {
+			t.Fatalf("Read returned n = %d", n)
+		}
+		got = append(got, buf[:n]...)
+		errs = append(errs, err)
+	}
+	if string(got) != "012345" {
+		t.Fatalf("got %q, want the first 6 bytes", got)
+	}
+	if errs[0] != nil {
+		t.Fatalf("first read: %v", errs[0])
+	}
+	for i, err := range errs[1:] {
+		if !errors.Is(err, ErrTooLarge) {
+			t.Fatalf("read %d: err = %v, want ErrTooLarge", i+2, err)
+		}
+	}
+}
+
+func TestCapReaderSurvivesBufferedRetries(t *testing.T) {
+	r, dir := openRoots(t)
+	p := filepath.Join(dir, "grow.txt")
+	write(t, p, "ab")
+	f, err := r.Open("data", "grow.txt", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := os.WriteFile(p, []byte("line1\nline2\nline3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReaderSize(f, 16)
+	for range 3 { // previously panicked with "reader returned negative count from Read"
+		if _, err := br.ReadString('\n'); !errors.Is(err, ErrTooLarge) {
+			t.Fatalf("err = %v, want ErrTooLarge", err)
+		}
 	}
 }
 

@@ -36,7 +36,7 @@ func setup(t *testing.T) fixture {
 			t.Fatal(err)
 		}
 	}
-	src, err := New(roots, reg, 1024)
+	src, err := New(roots, reg, 1024, frame.Limits{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,17 +60,59 @@ func (f fixture) query(body string) (*frame.Result, error) {
 
 func TestNew(t *testing.T) {
 	f := setup(t)
-	if _, err := New(nil, plugin.NewRegistry(), 1); err == nil {
+	if _, err := New(nil, plugin.NewRegistry(), 1, frame.Limits{}); err == nil {
 		t.Fatal("nil roots")
 	}
-	if _, err := New(f.root, nil, 1); err == nil {
+	if _, err := New(f.root, nil, 1, frame.Limits{}); err == nil {
 		t.Fatal("nil formats")
 	}
-	if _, err := New(f.root, plugin.NewRegistry(), 0); err == nil {
+	if _, err := New(f.root, plugin.NewRegistry(), 0, frame.Limits{}); err == nil {
 		t.Fatal("zero limit")
 	}
 	if m := f.src.Meta(); m.ID != "file" || m.Name != "Local files" {
 		t.Fatalf("%+v", m)
+	}
+}
+
+func TestNewRejectsNegativeDefaults(t *testing.T) {
+	f := setup(t)
+	for _, l := range []frame.Limits{{MaxRows: -1}, {MaxBytes: -1}} {
+		if _, err := New(f.root, plugin.NewRegistry(), 1, l); err == nil {
+			t.Fatalf("%+v accepted", l)
+		}
+	}
+}
+
+func TestQueryWithoutLimitsGetsDefaults(t *testing.T) {
+	f := setup(t)
+	if f.src.defaults != (frame.Limits{MaxRows: DefaultMaxRows, MaxBytes: DefaultMaxBytes}) {
+		t.Fatalf("defaults = %+v", f.src.defaults)
+	}
+	src, err := New(f.root, f.src.formats, 1024, frame.Limits{MaxRows: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.defaults.MaxBytes != DefaultMaxBytes {
+		t.Fatalf("zero default byte limit must fall back: %+v", src.defaults)
+	}
+	f.write(t, "n.csv", "v\n1\n2\n3\n4\n")
+	res, err := src.Query(context.Background(), plugin.Query{RefID: "A", Source: f.cfg, Body: json.RawMessage(`{"path":"n.csv"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fr := res.Frames[0]; fr.Rows() != 2 || !fr.Meta.Truncated {
+		t.Fatalf("rows = %d truncated = %v", fr.Rows(), fr.Meta.Truncated)
+	}
+	// Explicit query limits win over the defaults, in either direction.
+	res, err = src.Query(context.Background(), plugin.Query{RefID: "A", Source: f.cfg, Body: json.RawMessage(`{"path":"n.csv"}`), Limits: frame.Limits{MaxRows: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fr := res.Frames[0]; fr.Rows() != 3 {
+		t.Fatalf("explicit limit: rows = %d", fr.Rows())
+	}
+	if got := src.limits(frame.Limits{MaxRows: 7, MaxBytes: 9}); got != (frame.Limits{MaxRows: 7, MaxBytes: 9}) {
+		t.Fatalf("limits = %+v", got)
 	}
 }
 

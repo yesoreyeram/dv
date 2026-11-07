@@ -51,23 +51,53 @@ type QueryModel struct {
 	FieldTypes map[string]frame.FieldType `json:"fieldTypes,omitempty"`
 }
 
+// Default result limits applied when a query leaves a limit at zero ("unlimited"), so a
+// caller that forgets to set limits cannot make a decode hold an unbounded amount of
+// memory (FR-011 AC8, NFR-PERF-003).
+const (
+	DefaultMaxRows  = 1_000_000
+	DefaultMaxBytes = 64 << 20
+)
+
 // Source is the file data-source plugin.
 type Source struct {
 	roots    *fsroot.Roots
 	formats  Formats
 	maxBytes int64
+	defaults frame.Limits
 }
 
 // New returns a file source reading from roots, decoding with formats and refusing files
-// larger than maxBytes.
-func New(roots *fsroot.Roots, formats Formats, maxBytes int64) (*Source, error) {
+// larger than maxBytes. defaults are the result limits used for any limit a query leaves
+// at zero; zero members of defaults fall back to DefaultMaxRows / DefaultMaxBytes.
+func New(roots *fsroot.Roots, formats Formats, maxBytes int64, defaults frame.Limits) (*Source, error) {
 	if roots == nil || formats == nil {
 		return nil, errors.New("file source needs roots and formats")
 	}
 	if maxBytes <= 0 {
 		return nil, errors.New("file source needs a positive size limit")
 	}
-	return &Source{roots: roots, formats: formats, maxBytes: maxBytes}, nil
+	if defaults.MaxRows < 0 || defaults.MaxBytes < 0 {
+		return nil, errors.New("file source default limits must not be negative")
+	}
+	if defaults.MaxRows == 0 {
+		defaults.MaxRows = DefaultMaxRows
+	}
+	if defaults.MaxBytes == 0 {
+		defaults.MaxBytes = DefaultMaxBytes
+	}
+	return &Source{roots: roots, formats: formats, maxBytes: maxBytes, defaults: defaults}, nil
+}
+
+// limits fills the zero members of q with the source defaults.
+func (s *Source) limits(q frame.Limits) frame.Limits {
+	if q.MaxRows == 0 {
+		q.MaxRows = s.defaults.MaxRows
+	}
+	if q.MaxBytes == 0 {
+		q.MaxBytes = s.defaults.MaxBytes
+	}
+	return q
 }
 
 // Meta implements plugin.Source.
@@ -147,7 +177,7 @@ func (s *Source) Query(ctx context.Context, q plugin.Query) (*frame.Result, erro
 	}
 	defer func() { _ = f.Close() }()
 	frames, err := format.Decode(ctx, io.Reader(f), plugin.DecodeOptions{
-		Limits:     q.Limits,
+		Limits:     s.limits(q.Limits),
 		FieldTypes: m.FieldTypes,
 		Options:    m.Options,
 	})
