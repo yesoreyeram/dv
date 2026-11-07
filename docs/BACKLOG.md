@@ -34,3 +34,4 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-037 | Host-provided `os.Root` / policy HTTP client handed to plugins (ADR-0002) — lands with the first plugin that needs it (B-012) | M2 | NFR-SEC-005/006 | Todo |
 | B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |
 | B-047 | Readiness: serve the previous result while one refresh runs (stale-while-revalidate), bounded by TTL + check timeout, so probes arriving during a slow check do not wait | M1 | FR-002 AC7, NFR-PERF-001 AC2 | In review (PR #2) |
+| B-049 | UI copy on Data sources claimed "Credentials are encrypted at rest" before M3 ships it; reword, and add a catalog-wide guard so no message claims an unshipped security property | M1 | FR-015 AC7, NFR-AUD-004, FR-022 | In review (PR #3) |
