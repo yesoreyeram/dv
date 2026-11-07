@@ -202,11 +202,15 @@ func TestStaticSPA(t *testing.T) {
 		{"/favicon.svg", 200, "<svg/>", "no-cache"},
 		{"/missing.js", 404, "", ""},
 		{"/leak.txt", 404, "", ""},
-		{"/../../etc/passwd", 301, "", ""}, // mux redirects to the cleaned path
+		{"/../../etc/passwd", http.StatusMultipleChoices, "", ""}, // any 3xx: mux redirects to the cleaned path (301 before Go 1.27, 307 after)
 	}
 	for _, tt := range tests {
 		rr := do(t, h, http.MethodGet, tt.path)
-		if rr.Code != tt.status {
+		if tt.status == http.StatusMultipleChoices {
+			if rr.Code < 300 || rr.Code > 399 || rr.Header().Get("Location") != "/etc/passwd" {
+				t.Errorf("%s: got %d Location=%q, want redirect to cleaned path", tt.path, rr.Code, rr.Header().Get("Location"))
+			}
+		} else if rr.Code != tt.status {
 			t.Errorf("%s: status %d, want %d", tt.path, rr.Code, tt.status)
 		}
 		if !strings.Contains(rr.Body.String(), tt.contains) {
