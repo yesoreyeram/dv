@@ -1,0 +1,54 @@
+version: "2"
+
+run:
+  timeout: 5m
+  # Lint the isolated load tests too (internal/server/perf_load_test.go).
+  build-tags: [perf]
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - noctx
+    - nolintlint
+    - revive
+    - sloglint
+    - unconvert
+    - usestdlibvars
+  settings:
+    gosec:
+      excludes: []
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: error-strings
+    sloglint:
+      kv-only: false
+      no-global: ""
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters: [noctx, gosec, bodyclose]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/yesoreyeram/dv

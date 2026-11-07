@@ -24,3 +24,6 @@ test-results/
 # Data
 /data/
 *.db
+e2e/.features-gen/
+coverage/
+web/coverage/

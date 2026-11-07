@@ -1,0 +1,156 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "dv API",
+    "version": "0.1.0",
+    "description": "HTTP API of the dv data visualization platform. All responses are JSON and carry security headers; errors use the `Error` envelope."
+  },
+  "servers": [{ "url": "/" }],
+  "tags": [
+    { "name": "system", "description": "Health, readiness and build information" },
+    { "name": "meta", "description": "API description" },
+    { "name": "plugins", "description": "Data-source and format plugins (ADR-0002)" }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": ["system"],
+        "operationId": "getLiveness",
+        "summary": "Liveness probe",
+        "description": "Reports that the process is alive. Does not check dependencies. (FR-001)",
+        "responses": {
+          "200": { "description": "Alive", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Liveness" } } } }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": ["system"],
+        "operationId": "getReadiness",
+        "summary": "Readiness probe",
+        "description": "Aggregates readiness checks; returns 503 when any check fails or the server is draining. Check details are reduced to pass/fail. (FR-002)",
+        "responses": {
+          "200": { "description": "Ready", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } } },
+          "503": { "description": "Not ready", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } } }
+        }
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "tags": ["system"],
+        "operationId": "getVersion",
+        "summary": "Build information",
+        "description": "Version, commit, build date and Go version of the running server. (FR-003)",
+        "responses": {
+          "200": { "description": "Build information", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BuildInfo" } } } },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/v1/plugins": {
+      "get": {
+        "tags": ["plugins"],
+        "operationId": "listPlugins",
+        "summary": "Plugin catalogue",
+        "description": "Data-source and format plugin types compiled into this server, sorted by ID. Static public metadata only. (FR-015)",
+        "responses": {
+          "200": { "description": "Plugin catalogue", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PluginCatalog" } } } },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": ["meta"],
+        "operationId": "getOpenAPI",
+        "summary": "OpenAPI document",
+        "description": "This document. (FR-004)",
+        "responses": {
+          "200": { "description": "OpenAPI 3.1 document", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Liveness": {
+        "type": "object",
+        "required": ["status"],
+        "properties": { "status": { "type": "string", "const": "ok" } }
+      },
+      "Readiness": {
+        "type": "object",
+        "required": ["status", "checks"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ready", "not_ready"] },
+          "checks": { "type": "object", "additionalProperties": { "type": "string", "enum": ["pass", "fail"] } }
+        }
+      },
+      "BuildInfo": {
+        "type": "object",
+        "required": ["version", "commit", "buildDate", "goVersion"],
+        "properties": {
+          "version": { "type": "string", "examples": ["0.1.0"] },
+          "commit": { "type": "string", "examples": ["abc1234"] },
+          "buildDate": { "type": "string", "examples": ["2026-11-07T00:00:00Z"] },
+          "goVersion": { "type": "string", "examples": ["go1.24.7"] }
+        }
+      },
+      "PluginCatalog": {
+        "type": "object",
+        "required": ["sources", "formats"],
+        "additionalProperties": false,
+        "properties": {
+          "sources": { "type": "array", "items": { "$ref": "#/components/schemas/SourcePlugin" } },
+          "formats": { "type": "array", "items": { "$ref": "#/components/schemas/FormatPlugin" } }
+        }
+      },
+      "SourcePlugin": {
+        "type": "object",
+        "required": ["id", "name", "description", "capabilities"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$", "examples": ["postgres"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "FormatPlugin": {
+        "type": "object",
+        "required": ["id", "name", "description", "mediaTypes", "extensions"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$", "examples": ["csv"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "mediaTypes": { "type": "array", "items": { "type": "string" } },
+          "extensions": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string", "examples": ["not_found", "rate_limited", "internal"] },
+              "message": { "type": "string" },
+              "requestId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "RateLimited": {
+        "description": "Too many requests",
+        "headers": { "Retry-After": { "schema": { "type": "integer" }, "description": "Seconds until a retry may succeed" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    }
+  }
+}

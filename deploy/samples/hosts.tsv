@@ -1,0 +1,4 @@
+host	cpu	memory_mb	up
+web-1	0.42	512	true
+web-2	0.38	498	true
+db-1	0.71	2048	true
