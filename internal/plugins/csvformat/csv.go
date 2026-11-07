@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -382,65 +383,77 @@ func truncateUTF8(s string, n int) string {
 	return s[:n]
 }
 
-// build infers types and converts records into a frame. It checks ctx between columns
-// and every cancelCheckEvery rows so a cancelled query stops consuming CPU.
+// build infers types and converts records into a frame. It checks ctx every
+// cancelCheckEvery rows so a cancelled query stops consuming CPU.
+//
+// Types are inferred only from rows the frame keeps (FR-011 AC4). The byte limit is
+// enforced by the builder on converted values, so whether a row fits depends on the
+// column types, and the types depend on which rows are kept. build therefore streams:
+// each record narrows the per-column candidate types, and the record is appended with
+// the types inferred from the prefix including it. When a record widens a column's
+// type, the builder is rebuilt from the retained prefix under the new types. If either
+// the rebuild or the record itself does not fit, the frame built so far (with the
+// previous types) is returned, truncated. A column's type changes at most four times (from
+// string while only empty cells are seen, then only by dropping candidates among bool,
+// number and time, finally to string), so the number of rebuilds is bounded. The overflow
+// record read past MaxRows never influences types; it is only used to flag the row
+// limit.
 func build(ctx context.Context, names []string, records [][]string, opts plugin.DecodeOptions) (*frame.Frame, error) {
-	types := make([]frame.FieldType, len(names))
-	fields := make([]*frame.Field, len(names))
-	// The overflow record only signals truncation; it must not influence types.
 	sample := records
 	if m := opts.Limits.MaxRows; m > 0 && len(sample) > m {
 		sample = sample[:m]
 	}
-	for i, name := range names {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		t, ok := opts.FieldTypes[name]
-		if !ok {
-			t = infer(sample, i)
-		}
-		fld, err := frame.NewField(name, t)
-		if err != nil {
-			return nil, err
-		}
-		types[i], fields[i] = t, fld
-	}
-	b, err := frame.NewBuilder("", opts.Limits, fields...)
+	inf := newInferrer(names, opts.FieldTypes)
+	types := inf.types()
+	cur, err := fill(ctx, names, types, nil, opts.Limits)
 	if err != nil {
 		return nil, err
 	}
-	failed := make([]int, len(names))
-	rowFailed := make([]bool, len(names))
-	row := make([]any, len(names))
-	for n, rec := range records {
+	stopped := false
+	for n, rec := range sample {
 		if n%cancelCheckEvery == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-		for i, cell := range rec {
-			v, ok := convert(types[i], cell)
-			rowFailed[i] = !ok
-			row[i] = v
-		}
-		if err := b.AppendRow(row...); errors.Is(err, frame.ErrLimitReached) {
-			break
-		} else if err != nil {
-			return nil, err
-		}
-		// Count failures only for rows the frame kept, so notices describe its data.
-		for i, f := range rowFailed {
-			if f {
-				failed[i]++
+		next := inf.peek(rec)
+		cand := cur
+		if !slices.Equal(next, types) {
+			cand, err = fill(ctx, names, next, sample[:n], opts.Limits)
+			if err != nil {
+				return nil, err
+			}
+			if cand.b.Frame().Rows() < n {
+				stopped = true // the widened types no longer fit the retained rows
+				break
 			}
 		}
+		ok, err := cand.append(rec)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			stopped = true
+			break
+		}
+		cur, types = cand, next
+		inf.commit(rec)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	fr := b.Frame()
-	for i, n := range failed {
+	fr := cur.b.Frame()
+	switch {
+	case stopped && !fr.Meta.Truncated:
+		fr.Meta.Truncated = true
+		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Result truncated at the byte limit of %d bytes.", opts.Limits.MaxBytes))
+	case !stopped && len(records) > len(sample):
+		// The overflow record only lets the builder flag the row limit.
+		if _, err := cur.append(records[len(sample)]); err != nil {
+			return nil, err
+		}
+	}
+	for i, n := range cur.failed {
 		if n > 0 {
 			noun := "values"
 			if n == 1 {
@@ -452,31 +465,135 @@ func build(ctx context.Context, names []string, records [][]string, opts plugin.
 	return fr, nil
 }
 
-// infer picks the narrowest type that every non-empty cell of column i parses as.
-func infer(records [][]string, i int) frame.FieldType {
-	candidates := []frame.FieldType{frame.TypeBool, frame.TypeNumber, frame.TypeTime}
-	seen := false
-	for _, rec := range records {
-		cell := strings.TrimSpace(rec[i])
-		if cell == "" {
-			continue
+// partial is a frame under construction with fixed column types.
+type partial struct {
+	b      *frame.Builder
+	types  []frame.FieldType
+	failed []int
+	row    []any
+	bad    []bool
+}
+
+// fill builds a frame with the given types from rows, stopping at the limits.
+func fill(ctx context.Context, names []string, types []frame.FieldType, rows [][]string, lim frame.Limits) (*partial, error) {
+	fields := make([]*frame.Field, len(names))
+	for i, name := range names {
+		fld, err := frame.NewField(name, types[i])
+		if err != nil {
+			return nil, err
 		}
-		seen = true
-		kept := candidates[:0]
-		for _, t := range candidates {
-			if _, ok := convert(t, cell); ok {
-				kept = append(kept, t)
+		fields[i] = fld
+	}
+	b, err := frame.NewBuilder("", lim, fields...)
+	if err != nil {
+		return nil, err
+	}
+	p := &partial{b: b, types: types, failed: make([]int, len(names)), row: make([]any, len(names)), bad: make([]bool, len(names))}
+	for n, rec := range rows {
+		if n%cancelCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
 		}
-		candidates = kept
-		if len(candidates) == 0 {
-			return frame.TypeString
+		if ok, err := p.append(rec); err != nil || !ok {
+			return p, err
 		}
 	}
-	if !seen {
-		return frame.TypeString
+	return p, nil
+}
+
+// append converts and adds one record. It reports false when a limit stopped the build.
+// Conversion failures are counted only for rows the frame keeps.
+func (p *partial) append(rec []string) (bool, error) {
+	for i, cell := range rec {
+		v, ok := convert(p.types[i], cell)
+		p.bad[i] = !ok
+		p.row[i] = v
 	}
-	return candidates[0]
+	if err := p.b.AppendRow(p.row...); errors.Is(err, frame.ErrLimitReached) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	for i, f := range p.bad {
+		if f {
+			p.failed[i]++
+		}
+	}
+	return true, nil
+}
+
+// inferrer tracks, per column, the types every non-empty cell seen so far parses as.
+// Columns named in overrides keep their override.
+type inferrer struct {
+	fixed []frame.FieldType // override, or "" when inferred
+	cands [][]frame.FieldType
+	seen  []bool
+}
+
+func newInferrer(names []string, overrides map[string]frame.FieldType) *inferrer {
+	in := &inferrer{fixed: make([]frame.FieldType, len(names)), cands: make([][]frame.FieldType, len(names)), seen: make([]bool, len(names))}
+	for i, name := range names {
+		in.fixed[i] = overrides[name]
+		in.cands[i] = []frame.FieldType{frame.TypeBool, frame.TypeNumber, frame.TypeTime}
+	}
+	return in
+}
+
+func pick(fixed frame.FieldType, cands []frame.FieldType, seen bool) frame.FieldType {
+	switch {
+	case fixed != "":
+		return fixed
+	case !seen || len(cands) == 0:
+		return frame.TypeString
+	default:
+		return cands[0]
+	}
+}
+
+func narrow(cands []frame.FieldType, cell string) []frame.FieldType {
+	kept := make([]frame.FieldType, 0, len(cands))
+	for _, t := range cands {
+		if _, ok := convert(t, cell); ok {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
+// types returns the current type of every column.
+func (in *inferrer) types() []frame.FieldType {
+	out := make([]frame.FieldType, len(in.cands))
+	for i := range out {
+		out[i] = pick(in.fixed[i], in.cands[i], in.seen[i])
+	}
+	return out
+}
+
+// peek returns the column types that would result from also seeing rec.
+func (in *inferrer) peek(rec []string) []frame.FieldType {
+	out := make([]frame.FieldType, len(in.cands))
+	for i := range out {
+		cell := strings.TrimSpace(rec[i])
+		if in.fixed[i] != "" || cell == "" {
+			out[i] = pick(in.fixed[i], in.cands[i], in.seen[i])
+			continue
+		}
+		out[i] = pick("", narrow(in.cands[i], cell), true)
+	}
+	return out
+}
+
+// commit records rec as part of the retained sample.
+func (in *inferrer) commit(rec []string) {
+	for i := range in.cands {
+		cell := strings.TrimSpace(rec[i])
+		if in.fixed[i] != "" || cell == "" {
+			continue
+		}
+		in.cands[i] = narrow(in.cands[i], cell)
+		in.seen[i] = true
+	}
 }
 
 // timeLayouts are accepted for time inference, all interpreted as UTC when no offset is

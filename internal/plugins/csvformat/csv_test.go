@@ -253,11 +253,15 @@ func TestBadLimits(t *testing.T) {
 
 func FuzzDecode(f *testing.F) {
 	for _, s := range []string{"a,b\n1,2\n", "\"x\ny\",1\n", "a\n\"", ",,,\n,,,\n", "t\n2026-01-01\n"} {
-		f.Add(s)
+		f.Add(s, int64(0))
 	}
-	f.Fuzz(func(t *testing.T, in string) {
+	f.Add("v\n1\n2\nx\n", int64(60))
+	f.Fuzz(func(t *testing.T, in string, maxBytes int64) {
+		if maxBytes <= 0 || maxBytes > 1<<16 {
+			maxBytes = 1 << 16
+		}
 		for _, f := range []*Format{NewCSV(), NewTSV()} {
-			frames, err := f.Decode(context.Background(), strings.NewReader(in), plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 100, MaxBytes: 1 << 16}})
+			frames, err := f.Decode(context.Background(), strings.NewReader(in), plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 100, MaxBytes: maxBytes}})
 			if err != nil {
 				continue
 			}
@@ -266,6 +270,13 @@ func FuzzDecode(f *testing.F) {
 			}
 			if _, err := json.Marshal(frames[0]); err != nil {
 				t.Fatalf("%s: marshal: %v", f.meta.ID, err)
+			}
+			// Types are inferred only from retained rows, so without overrides no
+			// retained cell can fail conversion (FR-011 AC4).
+			for _, n := range frames[0].Meta.Notices {
+				if strings.Contains(n.Text, "could not be read") {
+					t.Fatalf("%s: %q produced %q", f.meta.ID, in, n.Text)
+				}
 			}
 		}
 	})
@@ -338,6 +349,48 @@ func TestOverflowRowDoesNotAffectTypesOrNotices(t *testing.T) {
 	fr = decode(t, NewCSV(), "v\n1\nbad\n", plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 1}})
 	if fr.Field("v").Type != frame.TypeNumber {
 		t.Fatalf("type inferred from the overflow row: %s", fr.Field("v").Type)
+	}
+}
+
+// Review PRRT_kwDOVlvWxc604A-H: rows the byte limit drops inside the builder must not
+// influence inferred types or the number of rows returned.
+func TestByteTruncatedRowsDoNotAffectTypes(t *testing.T) {
+	lim := plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 60}}
+	base := decode(t, NewCSV(), "v\n1\n2\n", lim)
+	if base.Rows() != 2 || base.Field("v").Type != frame.TypeNumber || base.Meta.Truncated {
+		t.Fatalf("baseline: rows %d type %s truncated %v", base.Rows(), base.Field("v").Type, base.Meta.Truncated)
+	}
+	for _, f := range []*Format{NewCSV(), NewTSV()} {
+		fr := decode(t, f, "v\n1\n2\nx\n", lim)
+		if fr.Field("v").Type != frame.TypeNumber {
+			t.Fatalf("%s: type inferred from a dropped row: %s", f.meta.ID, fr.Field("v").Type)
+		}
+		if fr.Rows() != 2 || !fr.Meta.Truncated {
+			t.Fatalf("%s: rows %d truncated %v", f.meta.ID, fr.Rows(), fr.Meta.Truncated)
+		}
+		var byteNotices int
+		for _, n := range fr.Meta.Notices {
+			if strings.Contains(n.Text, "could not be read") {
+				t.Fatalf("%s: conversion notice for retained data: %q", f.meta.ID, n.Text)
+			}
+			if strings.Contains(n.Text, "byte limit") {
+				byteNotices++
+			}
+		}
+		if byteNotices != 1 {
+			t.Fatalf("%s: want exactly one byte-limit notice, got %+v", f.meta.ID, fr.Meta.Notices)
+		}
+		// Every returned value parses as the column type.
+		for i := 0; i < fr.Rows(); i++ {
+			if fr.Field("v").At(i) == nil {
+				t.Fatalf("%s: row %d is null", f.meta.ID, i)
+			}
+		}
+	}
+	// A budget too small for any row still returns a typed, truncated, empty frame.
+	fr := decode(t, NewCSV(), "v\nxxxxxxxx\n", plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 1}})
+	if fr.Rows() != 0 || !fr.Meta.Truncated {
+		t.Fatalf("tiny budget: rows %d truncated %v", fr.Rows(), fr.Meta.Truncated)
 	}
 }
 
