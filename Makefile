@@ -95,8 +95,9 @@ scan: vulncheck audit ## Security scans (gosec runs inside lint-go)
 vulncheck: ## govulncheck against the Go module
 	govulncheck ./...
 
-audit: ## pnpm audit for high/critical advisories
-	pnpm audit --audit-level high
+audit: ## pnpm audit: prod deps fail on low+, all deps on moderate+ (NFR-SEC-010)
+	pnpm audit --prod --audit-level low
+	pnpm audit --audit-level moderate
 
 ## ---------- containers ----------
 .PHONY: image compose-up

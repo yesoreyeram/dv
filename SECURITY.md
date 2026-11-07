@@ -22,6 +22,20 @@ dv is pre-1.0; only the latest `main` receives security fixes.
 Every pull request runs golangci-lint with gosec, govulncheck, `pnpm audit`, and gitleaks
 secret scanning; the release image is distroless and runs as a non-root user.
 
+## Dependency advisories
+
+`pnpm audit` fails the build on any advisory in a production dependency and on any
+moderate-or-above advisory anywhere, dev tooling included (NFR-SEC-010). When a
+transitive dependency is vulnerable and its parent has no fixed release, we add a
+scoped override in `pnpm-workspace.yaml` (`parent>child`, exact patched version) and
+list it here. Remove an entry once the parent's own range includes a fixed version.
+
+| Advisory | Package | Scope | Override | Added | Review by |
+| --- | --- | --- | --- | --- | --- |
+| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) | `minimatch` <11.0.1 (via `@typescript-eslint/typescript-estree` 8.72.1, `^10.2.2`) | dev only (ESLint) | `@typescript-eslint/typescript-estree>minimatch` → `11.0.3` | 2026-11-07 | next `typescript-eslint` minor |
+
+Ignored advisories (`auditConfig.ignoreGhsas`): none.
+
 ## Hardening checklist for operators
 
 - Terminate TLS at dv or a trusted ingress; HSTS is sent automatically over TLS.
