@@ -336,8 +336,11 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	}
 	sc.Step(`^the readiness check "([^"]*)" should have run at most (\d+) times?$`, func(name string, max int) error {
 		got, err := checkCount(name)
-		if err == nil && got > max {
-			err = fmt.Errorf("readiness check %q ran %d times, want at most %d", name, got, max)
+		if err == nil && (got > max || got < 1) {
+			// At least once: a count of 0 means the counted check never ran (e.g. it was
+			// replaced by a server-registered check of the same name), which would make
+			// the bound pass vacuously.
+			err = fmt.Errorf("readiness check %q ran %d times, want 1..%d", name, got, max)
 		}
 		return err
 	})
