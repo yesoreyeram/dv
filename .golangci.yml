@@ -2,6 +2,8 @@ version: "2"
 
 run:
   timeout: 5m
+  # Lint the isolated load tests too (internal/server/perf_load_test.go).
+  build-tags: [perf]
   tests: true
 
 linters:

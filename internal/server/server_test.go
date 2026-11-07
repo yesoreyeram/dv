@@ -432,3 +432,25 @@ func TestPluginCatalogDefaultsToEmptyFrozenRegistry(t *testing.T) {
 		t.Fatalf("readyz: %d %s", rr.Code, rr.Body.String())
 	}
 }
+
+// TestRateLimitDoesNotStarveSPA guards against the page document spending the token its
+// own assets need (Codex review finding on PR #2).
+func TestRateLimitDoesNotStarveSPA(t *testing.T) {
+	dir := writeWeb(t)
+	s := newTestServer(t, func(c *config.Config) {
+		c.WebDir = dir
+		c.RateLimitRPS, c.RateLimitBurst = 0.01, 1
+	})
+	h := s.Handler()
+	for _, p := range []string{"/", "/assets/app-abc.js", "/favicon.svg", "/dashboards/x", "/assets/app-abc.js"} {
+		if rr := do(t, h, http.MethodGet, p); rr.Code != http.StatusOK {
+			t.Fatalf("%s: %d, static/SPA requests must not be rate limited", p, rr.Code)
+		}
+	}
+	if rr := do(t, h, http.MethodGet, "/api/v1/version"); rr.Code != http.StatusOK {
+		t.Fatalf("first API call: %d", rr.Code)
+	}
+	if rr := do(t, h, http.MethodGet, "/api/openapi.json"); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("API burst exhausted, want 429, got %d", rr.Code)
+	}
+}
