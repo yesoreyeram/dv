@@ -34,7 +34,7 @@ Feature: Health probes
     When I send a GET request to "/readyz"
     Then the response status should be 503
 
-  @FR-002 @NFR-SEC-008
+  @FR-002
   Scenario: A burst of probes runs each readiness check once
     Given the dv server is running
     And the readiness check "plugins" passes and counts its calls

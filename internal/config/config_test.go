@@ -61,7 +61,7 @@ func TestAllEnvOverrides(t *testing.T) {
 	env := map[string]string{
 		"DV_LOG_FORMAT": "text", "DV_WEB_DIR": dir, "DV_RATE_LIMIT_RPS": "1.5",
 		"DV_READ_HEADER_TIMEOUT": "1s", "DV_READ_TIMEOUT": "2s", "DV_WRITE_TIMEOUT": "3s",
-		"DV_IDLE_TIMEOUT": "4s", "DV_READINESS_CHECK_TIMEOUT": "500ms",
+		"DV_IDLE_TIMEOUT": "4s", "DV_READINESS_CHECK_TIMEOUT": "500ms", "DV_READINESS_CACHE_TTL": "250ms",
 		"DV_MAX_HEADER_BYTES": "2048", "DV_MAX_BODY_BYTES": "4096",
 	}
 	cfg, err := Load(src(env, nil))
@@ -71,7 +71,7 @@ func TestAllEnvOverrides(t *testing.T) {
 	if cfg.LogFormat != "text" || cfg.WebDir != dir || cfg.RateLimitRPS != 1.5 ||
 		cfg.ReadHeaderTimeout.Std() != time.Second || cfg.ReadTimeout.Std() != 2*time.Second ||
 		cfg.WriteTimeout.Std() != 3*time.Second || cfg.IdleTimeout.Std() != 4*time.Second ||
-		cfg.ReadinessCheckTimeout.Std() != 500*time.Millisecond ||
+		cfg.ReadinessCheckTimeout.Std() != 500*time.Millisecond || cfg.ReadinessCacheTTL.Std() != 250*time.Millisecond ||
 		cfg.MaxHeaderBytes != 2048 || cfg.MaxBodyBytes != 4096 {
 		t.Fatalf("overrides not applied: %+v", cfg)
 	}
@@ -104,6 +104,8 @@ func TestLoadErrors(t *testing.T) {
 		{"tiny rps", map[string]string{"DV_RATE_LIMIT_RPS": "1e-300"}, nil, "rateLimitRps"},
 		{"huge rps", map[string]string{"DV_RATE_LIMIT_RPS": "1e7"}, nil, "rateLimitRps"},
 		{"zero timeout", map[string]string{"DV_IDLE_TIMEOUT": "0s"}, nil, "idleTimeout"},
+		{"negative readiness ttl", map[string]string{"DV_READINESS_CACHE_TTL": "-1s"}, nil, "readinessCacheTTL"},
+		{"huge readiness ttl", map[string]string{"DV_READINESS_CACHE_TTL": "61s"}, nil, "readinessCacheTTL"},
 		{"header bytes", map[string]string{"DV_MAX_HEADER_BYTES": "10"}, nil, "maxHeaderBytes"},
 		{"body bytes", map[string]string{"DV_MAX_BODY_BYTES": "999999999"}, nil, "maxBodyBytes"},
 		{"web dir missing", map[string]string{"DV_WEB_DIR": "/definitely/not/here"}, nil, "webDir"},
@@ -169,5 +171,13 @@ func TestOSSource(t *testing.T) {
 	}
 	if _, err := s.ReadFile("/definitely/missing"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("readfile err = %v", err)
+	}
+}
+
+func TestReadinessCacheTTLBounds(t *testing.T) {
+	for _, v := range []string{"0s", "1m"} {
+		if _, err := Load(src(map[string]string{"DV_READINESS_CACHE_TTL": v}, nil)); err != nil {
+			t.Errorf("%s rejected: %v", v, err)
+		}
 	}
 }
