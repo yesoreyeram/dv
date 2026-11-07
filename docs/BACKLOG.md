@@ -42,3 +42,5 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-046 | Benchmark `/readyz` under a probe flood with a slow check, to back NFR-PERF-001 with numbers (pairs with B-031) | M1 | NFR-PERF-001, FR-002 | In review (PR #2) |
 | B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |
 | B-047 | Readiness: serve the previous result while one refresh runs (stale-while-revalidate), bounded by TTL + check timeout, so probes arriving during a slow check do not wait | M1 | FR-002 AC7, NFR-PERF-001 AC2 | In review (PR #2) |
+| B-048 | File paths: refuse hidden (dot) segments and Unicode bidi controls; `FuzzCleanPath`; hard-link residual risk documented | M2 | FR-011 AC3, NFR-SEC-006 | In review (PR #4) |
+| B-049 | UI copy on Data sources claims "Credentials are encrypted at rest" before M3 ships it; reword until FR-022 lands (`web/src/i18n/messages.ts`) | M1 | FR-022, NFR-SEC-002 | Todo |

@@ -106,3 +106,16 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Not verified locally: real godog, govulncheck, gitleaks, Docker build. No dependency or web changes.
 - Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 + B-040, then B-013 JSON.
 
+## 2026-11-07 ~21:30–22:00 UTC — B-048 hidden-file and bidi path hardening on the open stack (no new PR)
+- Triage: PRs #2, #3, #4 open and unmerged, all 7 CI checks green on each, every review thread fixed and answered (the one unresolved thread on #2 is outdated and answered in 9c0b364), `main` unchanged. Three or more open, so per the run rules this run improves the stack instead of opening a new PR.
+- Planned: an independent security review of the file source (`internal/fsroot`, `filesource`), the stack's main trust boundary. Finding: `CleanPath` accepted hidden entries, so an operator exposing a project or home directory exposed `.env`, `.git/config`, `.aws/credentials`; the CSV decoder returned their `KEY,value` lines as rows. Paths with bidi controls (U+202E …) were accepted too and echoed into errors and `meta.executedQuery`, where they display as a different file name.
+- Requirements first (320ab68): FR-011 AC3, NFR-SEC-006, two threat-model F-03 rows, and a hard-link residual-risk note (`os.Root` confines resolution, not hard links; mount roots read-only). `file.feature` got 4 scenarios (11 examples), and godog showed 7 failing before the fix.
+- Shipped on PR #4 ([#4](https://github.com/yesoreyeram/dv/pull/4)), in 53a85ac:
+  - `CleanPath` rejects any cleaned segment starting with `.`. `./a.csv` and `v1.2/a.b.csv` still work.
+  - It also rejects `unicode.Bidi_Control` (U+061C, U+200E/F, U+202A–E, U+2066–9). ZWJ/ZWNJ stay allowed for Persian and Indic names.
+  - Behaviour change: `...csv` is now refused, since it is a hidden name on Unix.
+  - New tests: hidden segments, bidi controls, existing dotfiles refused by `Open` without leaking the root dir. `FuzzCleanPath` pins the accepted-path invariants and ran 2.6M executions in 45 s with no failure.
+- Evidence: `go test -race ./internal/... ./cmd/...` green (fsroot 96.5 %, filesource 100 %). golangci-lint 0 issues (default and `perf`); staticcheck caught a literal U+202E in a fuzz seed, which is now escaped, and no literal bidi characters are left in the repo. UI BDD 20/20. `make build` + run with a root containing `.env`: `/readyz` ready, 0 browser console errors. Screenshots: `docs/screenshots/feat-csv-file-source/run11-*` (before/after table produced by real `filesource.Query` calls on f486c6a vs 53a85ac).
+- New this run: the **real godog suite now runs locally**. `GOPROXY=direct go test ./test/bdd/` fetches godog's modules from GitHub and verifies them against the committed `go.sum` (sumdb left on). All API, frame and file scenarios pass. `go mod download`, `go mod tidy -diff` (B-033), govulncheck and the Go bump (B-030) remain blocked: gopkg.in, sum.golang.org, vuln.go.dev and go.dev are unreachable. gitleaks and the Docker build are left to CI.
+- Found, not fixed (other PR's scope): B-049, the Data sources copy claims credentials are encrypted at rest before M3.
+- Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 + B-040, then B-013 JSON; B-049 copy fix.
