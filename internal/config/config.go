@@ -10,11 +10,19 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+)
+
+// Rate-limit bounds accepted by Validate (NFR-SEC-008).
+const (
+	MinRateLimitRPS   = 0.01
+	MaxRateLimitRPS   = 1e6
+	MaxRateLimitBurst = 1_000_000
 )
 
 // Duration is a time.Duration that (un)marshals from/to a Go duration string ("15s").
@@ -189,11 +197,13 @@ func (c Config) Validate() error {
 	if c.LogFormat != "json" && c.LogFormat != "text" {
 		errs = append(errs, fmt.Errorf("logFormat %q: must be json or text", c.LogFormat))
 	}
-	if c.RateLimitRPS < 0 {
-		errs = append(errs, errors.New("rateLimitRps must be >= 0 (0 disables rate limiting)"))
+	// NaN compares false with everything, so it would slip past a "< 0" check and then
+	// silently disable the limiter; reject non-finite and out-of-range values outright.
+	if r := c.RateLimitRPS; math.IsNaN(r) || math.IsInf(r, 0) || r < 0 || (r > 0 && r < MinRateLimitRPS) || r > MaxRateLimitRPS {
+		errs = append(errs, fmt.Errorf("rateLimitRps must be 0 (disabled) or between %g and %g", MinRateLimitRPS, MaxRateLimitRPS))
 	}
-	if c.RateLimitRPS > 0 && c.RateLimitBurst < 1 {
-		errs = append(errs, errors.New("rateLimitBurst must be >= 1 when rate limiting is enabled"))
+	if c.RateLimitRPS > 0 && (c.RateLimitBurst < 1 || c.RateLimitBurst > MaxRateLimitBurst) {
+		errs = append(errs, fmt.Errorf("rateLimitBurst must be between 1 and %d when rate limiting is enabled", MaxRateLimitBurst))
 	}
 	for _, d := range []struct {
 		name string

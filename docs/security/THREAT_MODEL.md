@@ -37,6 +37,8 @@ credentials and data-source secrets.
 | I | Version disclosure aids attackers | `/healthz` and `/readyz` reveal no version; `/api/v1/version` will require authentication once M3 lands (backlog B-020) | Review |
 | I | Referrer leakage of dashboard URLs | `Referrer-Policy: no-referrer` | `security.feature` |
 | D | Request flooding | Per-client token bucket (`429` + `Retry-After`), bounded client table with idle eviction | `security.feature`, `ratelimit_test.go` |
+| D | Filling the limiter table (many IPv6 addresses from one /64, or many hosts) to lock out new clients and make every newcomer pay an O(table) sweep under the global lock | IPv6 keyed by /64; full table → newcomers share one overflow bucket instead of a hard deny; full-table sweep throttled to once per second | `ratelimit_test.go` (`TestRateLimiterFullTableIsNotOSquared`, `TestClientKey`), `security.feature` |
+| T | Mis-set `DV_RATE_LIMIT_RPS=NaN`/`Inf` silently disabling the limiter | Non-finite and out-of-range rate/burst rejected at start-up | `config_test.go` |
 | D | Slowloris / oversized headers / bodies | `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `MaxHeaderBytes`; `http.MaxBytesReader` on bodies | `config_test.go`, `server_test.go` |
 | D | Hung readiness dependency stalls probes | Each check runs with a timeout derived from the request context | `health_test.go` |
 | E | Path traversal through static file serving | Static assets served via `http.FS(os.DirFS(root))` / `os.Root` semantics; `..` rejected; SPA fallback only for extension-less paths | `static_test.go` |

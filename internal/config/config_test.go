@@ -97,6 +97,12 @@ func TestLoadErrors(t *testing.T) {
 		{"bad format", map[string]string{"DV_LOG_FORMAT": "xml"}, nil, "logFormat"},
 		{"negative rps", map[string]string{"DV_RATE_LIMIT_RPS": "-1"}, nil, "rateLimitRps"},
 		{"zero burst", map[string]string{"DV_RATE_LIMIT_BURST": "0"}, nil, "rateLimitBurst"},
+		{"huge burst", map[string]string{"DV_RATE_LIMIT_BURST": "1000001"}, nil, "rateLimitBurst"},
+		{"NaN rps", map[string]string{"DV_RATE_LIMIT_RPS": "NaN"}, nil, "rateLimitRps"},
+		{"Inf rps", map[string]string{"DV_RATE_LIMIT_RPS": "+Inf"}, nil, "rateLimitRps"},
+		{"-Inf rps", map[string]string{"DV_RATE_LIMIT_RPS": "-Inf"}, nil, "rateLimitRps"},
+		{"tiny rps", map[string]string{"DV_RATE_LIMIT_RPS": "1e-300"}, nil, "rateLimitRps"},
+		{"huge rps", map[string]string{"DV_RATE_LIMIT_RPS": "1e7"}, nil, "rateLimitRps"},
 		{"zero timeout", map[string]string{"DV_IDLE_TIMEOUT": "0s"}, nil, "idleTimeout"},
 		{"header bytes", map[string]string{"DV_MAX_HEADER_BYTES": "10"}, nil, "maxHeaderBytes"},
 		{"body bytes", map[string]string{"DV_MAX_BODY_BYTES": "999999999"}, nil, "maxBodyBytes"},
@@ -125,6 +131,19 @@ func TestRateLimitDisabledAllowsZeroBurst(t *testing.T) {
 	cfg.RateLimitRPS, cfg.RateLimitBurst = 0, 0
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRateLimitBoundsAreInclusive(t *testing.T) {
+	for _, tc := range []struct {
+		rps   float64
+		burst int
+	}{{MinRateLimitRPS, 1}, {MaxRateLimitRPS, MaxRateLimitBurst}} {
+		cfg := Default()
+		cfg.RateLimitRPS, cfg.RateLimitBurst = tc.rps, tc.burst
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("%v/%d: %v", tc.rps, tc.burst, err)
+		}
 	}
 }
 
