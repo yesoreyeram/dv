@@ -28,7 +28,7 @@ credentials and data-source secrets.
 | STRIDE | Threat | Mitigation | Verified by |
 | --- | --- | --- | --- |
 | S | Spoofed `X-Forwarded-For` to evade rate limits | Client identity = TCP peer address; forwarded headers are ignored until an explicit trusted-proxy list is configured (backlog B-021). | `ratelimit_test.go` |
-| T | XSS / script injection into the SPA | Strict CSP: `default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`; React escapes text; OpenAPI rendered as text only. | `security.feature`, `headers_test.go` |
+| T | XSS / script injection into the SPA | Strict CSP: `default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`; React escapes text; OpenAPI rendered as text only. | `security.feature`, `headers_test.go`, `features/ui/csp.feature` (zero violations in a real browser; injected inline script blocked) |
 | T | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'` | `security.feature` |
 | T | MIME sniffing of API responses | `X-Content-Type-Options: nosniff`, explicit `Content-Type` | `security.feature` |
 | R | Actions not attributable | Request ID on every request and access log; audit log lands with authN (M3) | `requestid_test.go` |
