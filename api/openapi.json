@@ -3,8 +3,7 @@
   "info": {
     "title": "dv API",
     "version": "0.1.0",
-    "description": "HTTP API of the dv data visualization platform. All responses are JSON and carry security headers; errors use the `Error` envelope.",
-    "license": { "name": "Apache-2.0", "identifier": "Apache-2.0" }
+    "description": "HTTP API of the dv data visualization platform. All responses are JSON and carry security headers; errors use the `Error` envelope."
   },
   "servers": [{ "url": "/" }],
   "tags": [
