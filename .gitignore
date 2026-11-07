@@ -1,0 +1,26 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+# Node
+node_modules/
+.pnpm-store/
+web/dist/
+web/.features-gen/
+playwright-report/
+test-results/
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+# Data
+/data/
+*.db
