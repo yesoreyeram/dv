@@ -30,13 +30,14 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-033 | Enforce `go mod tidy -diff` in CI (go.sum lacks hashes for test-only deps of godog because this run's sandbox could not reach proxy.golang.org) | M0 | NFR-SEC-014 | Todo |
 | B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
 | B-035 | Triage moderate `minimatch` advisory (dev-only, via typescript-eslint in e2e) | M0 | NFR-SEC-010 | Todo |
-| B-036 | E2E scenario asserting zero CSP violations in the browser console | M1 | NFR-SEC-007 | Todo |
+| B-036 | E2E scenario asserting zero CSP violations in the browser (events + console), with injected-script negative control | M1 | NFR-SEC-007 | In review (PR #2) |
 | B-037 | Host-provided `os.Root` handed to plugins (ADR-0002) — `internal/fsroot` | M2 | NFR-SEC-006 | In review (PR #4) |
 | B-039 | Policy HTTP client handed to plugins (ADR-0002) — lands with the REST source | M5 | NFR-SEC-005 | Todo |
 | B-040 | Map file-source error kinds to HTTP statuses (400/404/413/415) in `POST /api/v1/query` | M2 | FR-011 AC9, FR-010 | Todo (with B-014) |
 | B-041 | File listing capability for the file source (browse a root in the query editor) with the same path controls | M2 | FR-011, NFR-SEC-006 | Todo |
 | B-042 | Provisioned data-source instances from config until M3 storage exists, so the query API can be used | M2 | FR-011, FR-015 | Todo |
-| B-043 | Cache `/readyz` results (~1 s, singleflight) so probe floods cannot pile up goroutines blocked in `os.Stat` on a hung mount (review finding, plausible, not reproduced) | M2 | NFR-AVAIL-001, NFR-SEC-006 | Todo |
+| B-043 | `/readyz`: concurrent probes share one evaluation (singleflight), result reused for `DV_READINESS_CACHE_TTL` (1 s), a check stuck from an earlier probe is never restarted | M1 | FR-002 AC5/AC6, NFR-AVAIL-001, NFR-SEC-006 | In review (PR #2) |
 | B-044 | Host-level query limits in config (`queryMaxRows`/`queryMaxBytes`) wired into `builtin.Options.QueryDefaults` and `POST /api/v1/query` | M2 | NFR-PERF-003 | Todo (with B-014) |
 | B-045 | Cluster-aware rate limiting and trusted-proxy keying (limiter is per instance; see B-021) | M3 | NFR-SEC-008 | Todo |
+| B-046 | Benchmark `/readyz` under a probe flood with a slow check, to back NFR-PERF-001 with numbers (pairs with B-031) | M1 | NFR-PERF-001, FR-002 | Todo |
 | B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |
