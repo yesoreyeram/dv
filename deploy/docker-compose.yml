@@ -1,0 +1,25 @@
+# Local single-node deployment. `make compose-up` or:
+#   docker compose -f deploy/docker-compose.yml up --build
+services:
+  dv:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: dv:local
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DV_LOG_LEVEL: info
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "65532:65532"
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256m
+    restart: unless-stopped

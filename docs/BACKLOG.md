@@ -27,3 +27,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-030 | Bump Go to latest stable (1.25+/1.26+) once the build environment can download it; CI already also tests on `stable` | M0 | NFR-MAINT-001 | Todo |
 | B-031 | Benchmark for health endpoints | M1 | NFR-PERF-001 | Todo |
 | B-032 | Bundle-size budget check in CI | M1 | NFR-PERF-004 | Todo |
+| B-033 | Enforce `go mod tidy -diff` in CI (go.sum lacks hashes for test-only deps of godog because this run's sandbox could not reach proxy.golang.org) | M0 | NFR-SEC-014 | Todo |
+| B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
+| B-035 | Triage moderate `minimatch` advisory (dev-only, via typescript-eslint in e2e) | M0 | NFR-SEC-010 | Todo |
+| B-036 | E2E scenario asserting zero CSP violations in the browser console | M1 | NFR-SEC-007 | Todo |
