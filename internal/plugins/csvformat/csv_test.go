@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yesoreyeram/dv/internal/frame"
 	"github.com/yesoreyeram/dv/internal/plugin"
@@ -246,15 +247,87 @@ func FuzzDecode(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, in string) {
-		frames, err := NewCSV().Decode(context.Background(), strings.NewReader(in), plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 100, MaxBytes: 1 << 16}})
-		if err != nil {
-			return
-		}
-		if err := frames[0].Validate(); err != nil {
-			t.Fatalf("invalid frame: %v", err)
-		}
-		if _, err := json.Marshal(frames[0]); err != nil {
-			t.Fatalf("marshal: %v", err)
+		for _, f := range []*Format{NewCSV(), NewTSV()} {
+			frames, err := f.Decode(context.Background(), strings.NewReader(in), plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 100, MaxBytes: 1 << 16}})
+			if err != nil {
+				continue
+			}
+			if err := frames[0].Validate(); err != nil {
+				t.Fatalf("%s: invalid frame: %v", f.meta.ID, err)
+			}
+			if _, err := json.Marshal(frames[0]); err != nil {
+				t.Fatalf("%s: marshal: %v", f.meta.ID, err)
+			}
 		}
 	})
+}
+
+func TestTSVHasNoQuoting(t *testing.T) {
+	in := "name\tsize\n\"disk\"\t1\n\"half\t2\r\n\n# not a comment\t3\n"
+	fr := decode(t, NewTSV(), in, plugin.DecodeOptions{})
+	got := fmt.Sprint(fr.Field("name").Values())
+	if got != `["disk" "half # not a comment]` || fr.Rows() != 3 {
+		t.Fatalf("names = %s rows = %d", got, fr.Rows())
+	}
+	fr = decode(t, NewTSV(), "a\tb\n# c\td\n1\t2", plugin.DecodeOptions{Options: json.RawMessage(`{"comment":"#"}`)})
+	if fr.Rows() != 1 || fr.Field("b").At(0) != int64(2) {
+		t.Fatalf("comment/no trailing newline: rows %d", fr.Rows())
+	}
+	for in, want := range map[string]string{
+		"a\tb\n1\n": "line 2: wrong number of columns (1, expected 2)",
+		strings.Repeat("a\t", MaxColumns) + "a\n": "columns, limit",
+		"": "empty",
+	} {
+		if _, err := NewTSV().Decode(context.Background(), strings.NewReader(in), plugin.DecodeOptions{}); err == nil || !strings.Contains(err.Error(), want) || (want != "empty" && !errors.Is(err, ErrDecode)) {
+			t.Errorf("%q: err = %v, want %q", in, err, want)
+		}
+	}
+	if _, err := NewTSV().Decode(context.Background(), failReader{}, plugin.DecodeOptions{}); err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("reader error = %v", err)
+	}
+}
+
+func TestInputBeyondTheRowLimitIsNotParsed(t *testing.T) {
+	for _, f := range []*Format{NewCSV(), NewTSV()} {
+		in := strings.NewReplacer(",", string(f.delimiter)).Replace("a,b\n1,2\n3,4\n5\n")
+		fr := decode(t, f, in, plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 1}})
+		if fr.Rows() != 1 || !fr.Meta.Truncated {
+			t.Fatalf("%s: rows %d truncated %v", f.meta.ID, fr.Rows(), fr.Meta.Truncated)
+		}
+	}
+}
+
+func TestDuplicateLongHeadersStayWithinTheLimit(t *testing.T) {
+	for _, n := range []int{frame.MaxFieldNameBytes - 3, frame.MaxFieldNameBytes} {
+		h := strings.Repeat("h", n)
+		fr := decode(t, NewCSV(), h+","+h+","+h+"\n1,2,3\n", plugin.DecodeOptions{})
+		seen := map[string]bool{}
+		for _, fld := range fr.Fields {
+			if len(fld.Name) > frame.MaxFieldNameBytes || seen[fld.Name] {
+				t.Fatalf("n=%d: bad name %d bytes, dup=%v", n, len(fld.Name), seen[fld.Name])
+			}
+			seen[fld.Name] = true
+		}
+		if !strings.HasSuffix(fr.Fields[2].Name, " (3)") {
+			t.Fatalf("suffix: %q", fr.Fields[2].Name[len(fr.Fields[2].Name)-6:])
+		}
+	}
+	// Multi-byte runes are not split when the base is shortened for a suffix.
+	h := strings.Repeat("é", frame.MaxFieldNameBytes/2)
+	fr := decode(t, NewCSV(), h+","+h+"\n1,2\n", plugin.DecodeOptions{})
+	if name := fr.Fields[1].Name; !utf8.ValidString(name) || len(name) > frame.MaxFieldNameBytes {
+		t.Fatalf("name invalid: %d bytes", len(name))
+	}
+}
+
+func TestOverflowRowDoesNotAffectTypesOrNotices(t *testing.T) {
+	over := plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 1}, FieldTypes: map[string]frame.FieldType{"v": frame.TypeNumber}}
+	fr := decode(t, NewCSV(), "v\n1\nbad\n", over)
+	if fr.Rows() != 1 || len(fr.Meta.Notices) != 1 || !strings.Contains(fr.Meta.Notices[0].Text, "row limit") {
+		t.Fatalf("rows %d notices %+v", fr.Rows(), fr.Meta.Notices)
+	}
+	fr = decode(t, NewCSV(), "v\n1\nbad\n", plugin.DecodeOptions{Limits: frame.Limits{MaxRows: 1}})
+	if fr.Field("v").Type != frame.TypeNumber {
+		t.Fatalf("type inferred from the overflow row: %s", fr.Field("v").Type)
+	}
 }

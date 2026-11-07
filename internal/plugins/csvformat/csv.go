@@ -133,15 +133,19 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 			return nil, fmt.Errorf("fieldTypes: %q has unsupported type %q", name, t)
 		}
 	}
-	cr := csv.NewReader(stripBOM(r))
-	cr.Comma = s.delimiter
-	cr.Comment = s.comment
-	cr.FieldsPerRecord = 0 // the first record fixes the width
-	cr.ReuseRecord = false
-	// TSV (IANA text/tab-separated-values) has no quoting, so quotes are literal there.
-	cr.LazyQuotes = f.meta.ID == "tsv"
+	var rr recordReader
+	if f.meta.ID == "tsv" {
+		// TSV (IANA text/tab-separated-values) has no quoting: quotes are literal data.
+		rr = &tsvReader{br: bufio.NewReader(stripBOM(r)), delim: string(s.delimiter), comment: s.comment}
+	} else {
+		cr := csv.NewReader(stripBOM(r))
+		cr.Comma = s.delimiter
+		cr.Comment = s.comment
+		cr.FieldsPerRecord = 0 // the first record fixes the width
+		rr = csvReader{cr}
+	}
 
-	names, records, byteStop, err := f.read(ctx, cr, s.header, opts.Limits)
+	names, records, byteStop, err := read(ctx, rr, s.header, opts.Limits)
 	if err != nil {
 		return nil, err
 	}
@@ -158,24 +162,23 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 
 // read returns the field names and up to MaxRows+1 records (the extra one lets the
 // builder detect truncation). byteStop reports that reading stopped at the byte limit.
-func (f *Format) read(ctx context.Context, cr *csv.Reader, header bool, lim frame.Limits) (names []string, records [][]string, byteStop bool, err error) {
+func read(ctx context.Context, rr recordReader, header bool, lim frame.Limits) (names []string, records [][]string, byteStop bool, err error) {
 	var bytesRead int64
 	for n := 0; ; n++ {
+		if names != nil && lim.MaxRows > 0 && len(records) > lim.MaxRows {
+			break // already holds the overflow record; later input is never parsed
+		}
 		if n%cancelCheckEvery == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, nil, false, err
 			}
 		}
-		rec, err := cr.Read()
+		rec, err := rr.Read()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return nil, nil, false, parseError(err)
-		}
-		if len(rec) > MaxColumns {
-			line, _ := cr.FieldPos(0)
-			return nil, nil, false, fmt.Errorf("line %d has %d columns, limit is %d: %w", line, len(rec), MaxColumns, ErrDecode)
+			return nil, nil, false, err
 		}
 		if names == nil {
 			if header {
@@ -183,9 +186,6 @@ func (f *Format) read(ctx context.Context, cr *csv.Reader, header bool, lim fram
 				continue
 			}
 			names = uniqueNames(make([]string, len(rec)))
-		}
-		if lim.MaxRows > 0 && len(records) > lim.MaxRows {
-			break // already holds the overflow record
 		}
 		var size int64
 		for _, c := range rec {
@@ -201,6 +201,68 @@ func (f *Format) read(ctx context.Context, cr *csv.Reader, header bool, lim fram
 		return nil, nil, false, fmt.Errorf("input is empty: %w", ErrDecode)
 	}
 	return names, records, false, nil
+}
+
+// recordReader yields records; errors caused by the input wrap ErrDecode and name the
+// line. Implementations enforce MaxColumns and a constant record width.
+type recordReader interface {
+	Read() ([]string, error)
+}
+
+// csvReader adapts encoding/csv (RFC 4180 quoting).
+type csvReader struct{ cr *csv.Reader }
+
+func (c csvReader) Read() ([]string, error) {
+	rec, err := c.cr.Read()
+	if err != nil {
+		return nil, parseError(err)
+	}
+	if len(rec) > MaxColumns {
+		line, _ := c.cr.FieldPos(0)
+		return nil, tooWide(line, len(rec))
+	}
+	return rec, nil
+}
+
+func tooWide(line, n int) error {
+	return fmt.Errorf("line %d has %d columns, limit is %d: %w", line, n, MaxColumns, ErrDecode)
+}
+
+// tsvReader splits lines on the delimiter without any quote handling. Like
+// encoding/csv it accepts \n or \r\n line endings and skips empty and comment lines.
+type tsvReader struct {
+	br      *bufio.Reader
+	delim   string
+	comment rune
+	line    int
+	width   int
+}
+
+func (t *tsvReader) Read() ([]string, error) {
+	for {
+		s, err := t.br.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if s == "" && err != nil {
+			return nil, io.EOF
+		}
+		t.line++
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "\n"), "\r")
+		if s == "" || (t.comment != 0 && strings.HasPrefix(s, string(t.comment))) {
+			continue
+		}
+		n := strings.Count(s, t.delim) + 1
+		if n > MaxColumns {
+			return nil, tooWide(t.line, n)
+		}
+		if t.width == 0 {
+			t.width = n
+		} else if n != t.width {
+			return nil, fmt.Errorf("line %d: wrong number of columns (%d, expected %d): %w", t.line, n, t.width, ErrDecode)
+		}
+		return strings.Split(s, t.delim), nil
+	}
 }
 
 func parseError(err error) error {
@@ -233,13 +295,13 @@ func uniqueNames(header []string) []string {
 		if name == "" {
 			name = "Column " + strconv.Itoa(i+1)
 		}
-		if len(name) > frame.MaxFieldNameBytes {
-			name = truncateUTF8(name, frame.MaxFieldNameBytes-8)
-		}
+		name = truncateUTF8(name, frame.MaxFieldNameBytes)
 		base := name
 		for seen[name] > 0 {
 			seen[base]++
-			name = fmt.Sprintf("%s (%d)", base, seen[base])
+			suffix := fmt.Sprintf(" (%d)", seen[base])
+			// Shorten the base so the suffixed name still fits the field-name limit.
+			name = truncateUTF8(base, frame.MaxFieldNameBytes-len(suffix)) + suffix
 		}
 		seen[name]++
 		out[i] = name
@@ -247,7 +309,11 @@ func uniqueNames(header []string) []string {
 	return out
 }
 
+// truncateUTF8 shortens s to at most n bytes without splitting a rune.
 func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
 	for n > 0 && !utf8.RuneStart(s[n]) {
 		n--
 	}
@@ -257,10 +323,15 @@ func truncateUTF8(s string, n int) string {
 func build(names []string, records [][]string, opts plugin.DecodeOptions) (*frame.Frame, error) {
 	types := make([]frame.FieldType, len(names))
 	fields := make([]*frame.Field, len(names))
+	// The overflow record only signals truncation; it must not influence types.
+	sample := records
+	if m := opts.Limits.MaxRows; m > 0 && len(sample) > m {
+		sample = sample[:m]
+	}
 	for i, name := range names {
 		t, ok := opts.FieldTypes[name]
 		if !ok {
-			t = infer(records, i)
+			t = infer(sample, i)
 		}
 		fld, err := frame.NewField(name, t)
 		if err != nil {
@@ -273,19 +344,24 @@ func build(names []string, records [][]string, opts plugin.DecodeOptions) (*fram
 		return nil, err
 	}
 	failed := make([]int, len(names))
+	rowFailed := make([]bool, len(names))
 	row := make([]any, len(names))
 	for _, rec := range records {
 		for i, cell := range rec {
 			v, ok := convert(types[i], cell)
-			if !ok {
-				failed[i]++
-			}
+			rowFailed[i] = !ok
 			row[i] = v
 		}
 		if err := b.AppendRow(row...); errors.Is(err, frame.ErrLimitReached) {
 			break
 		} else if err != nil {
 			return nil, err
+		}
+		// Count failures only for rows the frame kept, so notices describe its data.
+		for i, f := range rowFailed {
+			if f {
+				failed[i]++
+			}
 		}
 	}
 	fr := b.Frame()
