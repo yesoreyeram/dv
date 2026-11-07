@@ -71,6 +71,9 @@ func TestSecurityHeaders(t *testing.T) {
 	if !strings.Contains(rr.Header().Get("Strict-Transport-Security"), "max-age=") {
 		t.Error("HSTS missing over TLS")
 	}
+	if !strings.HasSuffix(rr.Header().Get("Content-Security-Policy"), "upgrade-insecure-requests") {
+		t.Error("CSP should upgrade insecure requests over TLS")
+	}
 }
 
 func TestMaxBody(t *testing.T) {

@@ -6,13 +6,18 @@ import "net/http"
 // (NFR-SEC-007). The SPA is built to comply (no inline scripts).
 const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; " +
 	"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
-	"base-uri 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+	"base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 
 // SecurityHeaders sets the hardening headers on every response.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+		csp := ContentSecurityPolicy
+		if r.TLS != nil {
+			// Only upgrade when served over TLS; plain-HTTP deployments would otherwise break.
+			csp += "; upgrade-insecure-requests"
+		}
+		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
