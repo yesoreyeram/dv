@@ -68,3 +68,8 @@ Then("the page has no serious or critical accessibility violations", async ({ pa
   );
   expect(blocking.map((v) => `${v.id}: ${v.help} (${String(v.nodes.length)} nodes)`)).toEqual([]);
 });
+
+Then("I do not see the text {string}", async ({ page }, text: string) => {
+  await expect(page.locator("main")).toBeVisible();
+  await expect(page.getByText(text)).toHaveCount(0);
+});

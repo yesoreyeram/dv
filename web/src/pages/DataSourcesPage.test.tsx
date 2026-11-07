@@ -41,6 +41,15 @@ describe("Data sources page (FR-015 AC6)", () => {
     expect(within(formats).getByText("csv")).toBeVisible();
   });
 
+  it("states that encrypted secret storage is planned, not shipped (FR-015 AC7)", async () => {
+    renderApp("/data-sources");
+    expect(
+      await screen.findByText("Encrypted secret storage is planned for milestone M3."),
+    ).toBeVisible();
+    expect(screen.getByText(/Stored credentials are not supported yet\./)).toBeVisible();
+    expect(screen.queryByText(/encrypted at rest/i)).not.toBeInTheDocument();
+  });
+
   it("shows explicit empty states when no plugins are registered", async () => {
     renderApp("/data-sources");
     expect(

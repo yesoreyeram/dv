@@ -85,7 +85,10 @@ export function DataSourcesPage() {
   return (
     <>
       <PageHeader title={t("dataSources.title")} subtitle={t("dataSources.subtitle")} />
-      <p className="mb-6 max-w-prose text-sm text-muted-foreground">{t("dataSources.body")}</p>
+      <div className="mb-6 max-w-prose space-y-1 text-sm text-muted-foreground">
+        <p>{t("dataSources.body")}</p>
+        <p>{t("dataSources.secretsPlanned")}</p>
+      </div>
       {q.isPending ? (
         <p role="status" aria-busy="true" className="text-sm text-muted-foreground">
           {t("dataSources.loading")}
