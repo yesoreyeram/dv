@@ -41,6 +41,7 @@ credentials and data-source secrets.
 | T | Mis-set `DV_RATE_LIMIT_RPS=NaN`/`Inf` silently disabling the limiter | Non-finite and out-of-range rate/burst rejected at start-up | `config_test.go` |
 | D | Slowloris / oversized headers / bodies | `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `MaxHeaderBytes`; `http.MaxBytesReader` on bodies | `config_test.go`, `server_test.go` |
 | D | Hung readiness dependency stalls probes | Each check runs with a timeout derived from the request context | `health_test.go` |
+| D | Probe flood multiplies dependency load or piles up goroutines stuck in a hung check | Concurrent probes share one evaluation (singleflight) and reuse it for `DV_READINESS_CACHE_TTL` (1 s); a check still running from an earlier probe is not restarted and reports `fail`, so at most one stuck goroutine exists per check (FR-002 AC5/AC6, B-043) | `health_test.go`, `health.feature` |
 | E | Path traversal through static file serving | Static assets served via `http.FS(os.DirFS(root))` / `os.Root` semantics; `..` rejected; SPA fallback only for extension-less paths | `static_test.go` |
 | E | Container breakout impact | Distroless non-root image, read-only root FS, `cap_drop: [ALL]`, `no-new-privileges` | `Dockerfile`, `docker-compose.yml` |
 
