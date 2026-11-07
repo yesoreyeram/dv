@@ -47,6 +47,8 @@ jobs:
           awk '/coverage:/ { v=$5; sub("%","",v); if (v+0 < 80) { print "below 80%: " $2 " " $5; bad=1 } } END { exit bad }' cover.txt
       - name: API BDD (godog)
         run: go test -count=1 -v ./test/bdd/...
+      - name: Probe latency under load (NFR-PERF-001, isolated, no -race)
+        run: go test -tags perf -count=1 -v -run 'UnderLoad' ./internal/server/
 
   go-security:
     name: Go security (govulncheck)
@@ -75,6 +77,8 @@ jobs:
       - run: pnpm -r run typecheck
       - run: pnpm --filter web run test
       - run: pnpm --filter web run build
+      - name: Bundle-size budget (NFR-PERF-004)
+        run: pnpm --filter web run size
       - name: pnpm audit (high+)
         run: pnpm audit --audit-level high
       - uses: actions/upload-artifact@v4
