@@ -170,7 +170,8 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
   count. Inference uses only the rows the frame returns: neither the row-limit overflow
   record nor rows dropped by the byte limit can change a column's type or the number of
   rows returned (the longest prefix whose types are inferred from that prefix alone and
-  which fits the limits is returned).
+  which fits the limits is returned). The work stays linear in the retained data: a type
+  change re-converts only that column, so each cell is converted at most five times.
 - AC8: host row/byte limits (NFR-PERF-003) apply; truncation sets `meta.truncated` with a
   notice. A limit the query leaves at zero is replaced by the source default (host-set,
   else 1,000,000 rows / 64 MiB estimated frame memory), so no query decodes unbounded.
