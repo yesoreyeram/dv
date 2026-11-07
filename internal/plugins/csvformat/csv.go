@@ -114,12 +114,13 @@ func (f *Format) settings(raw json.RawMessage) (settings, error) {
 	return s, nil
 }
 
+// singleRune accepts one printable ASCII character or tab. ASCII keeps the streaming
+// column guard exact (see columnGuard).
 func singleRune(name, v string) (rune, error) {
-	r, size := utf8.DecodeRuneInString(v)
-	if size != len(v) || r == utf8.RuneError || r == '"' || r == '\r' || r == '\n' {
-		return 0, fmt.Errorf("%s must be a single character other than quote or newline", name)
+	if len(v) != 1 || v[0] == '"' || (v[0] != '\t' && (v[0] < 0x20 || v[0] > 0x7e)) {
+		return 0, fmt.Errorf("%s must be a single printable ASCII character or tab, other than a quote", name)
 	}
-	return r, nil
+	return rune(v[0]), nil
 }
 
 // Decode implements plugin.Format.
@@ -138,7 +139,8 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 		// TSV (IANA text/tab-separated-values) has no quoting: quotes are literal data.
 		rr = &tsvReader{br: bufio.NewReader(stripBOM(r)), delim: string(s.delimiter), comment: s.comment}
 	} else {
-		cr := csv.NewReader(stripBOM(r))
+		guard := &columnGuard{r: stripBOM(r), delim: byte(s.delimiter), comment: byte(s.comment), atLineStart: true, line: 1}
+		cr := csv.NewReader(guard)
 		cr.Comma = s.delimiter
 		cr.Comment = s.comment
 		cr.FieldsPerRecord = 0 // the first record fixes the width
@@ -215,13 +217,59 @@ type csvReader struct{ cr *csv.Reader }
 func (c csvReader) Read() ([]string, error) {
 	rec, err := c.cr.Read()
 	if err != nil {
-		return nil, parseError(err)
-	}
-	if len(rec) > MaxColumns {
-		line, _ := c.cr.FieldPos(0)
-		return nil, tooWide(line, len(rec))
+		return nil, parseError(err) // the column cap is enforced by columnGuard
 	}
 	return rec, nil
+}
+
+// columnGuard counts unquoted delimiters per record while bytes stream into
+// encoding/csv, and fails as soon as a record would exceed MaxColumns. encoding/csv
+// allocates every field of a record before returning it, so without this a single wide
+// record could allocate many times the file size before the width check runs.
+// It follows RFC 4180 quoting: '"' toggles quoted state (a doubled quote toggles twice),
+// and delimiters and newlines inside quotes are data. Comment lines are skipped.
+type columnGuard struct {
+	r           io.Reader
+	delim       byte
+	comment     byte
+	inQuote     bool
+	inComment   bool
+	atLineStart bool
+	delims      int
+	line        int
+}
+
+func (g *columnGuard) Read(p []byte) (int, error) {
+	n, err := g.r.Read(p)
+	for _, b := range p[:n] {
+		switch {
+		case g.inComment:
+			if b == '\n' {
+				g.inComment, g.atLineStart = false, true
+				g.line++
+			}
+			continue
+		case g.atLineStart && !g.inQuote && g.comment != 0 && b == g.comment:
+			g.inComment = true
+			continue
+		}
+		g.atLineStart = false
+		switch {
+		case b == '"':
+			g.inQuote = !g.inQuote
+		case b == '\n':
+			g.line++
+			if !g.inQuote {
+				g.delims, g.atLineStart = 0, true
+			}
+		case b == g.delim && !g.inQuote:
+			g.delims++
+			if g.delims >= MaxColumns {
+				return 0, fmt.Errorf("line %d has more than %d columns: %w", g.line, MaxColumns, ErrDecode)
+			}
+		}
+	}
+	return n, err
 }
 
 func tooWide(line, n int) error {

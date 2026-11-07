@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -365,5 +366,55 @@ func TestCancellationAfterReading(t *testing.T) {
 	}
 	if _, err := build(ctx, nil, nil, plugin.DecodeOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("build without fields: %v", err)
+	}
+}
+
+func TestColumnGuard(t *testing.T) {
+	// Delimiters inside quotes (including quoted newlines and doubled quotes) and on
+	// comment lines do not count towards the column cap.
+	wideQuoted := `"` + strings.Repeat(",", 3*MaxColumns) + "\n\"\"" + `"`
+	in := "# " + strings.Repeat(",", 3*MaxColumns) + "\na,b\n" + wideQuoted + ",x\n"
+	fr := decode(t, NewCSV(), in, plugin.DecodeOptions{Options: json.RawMessage(`{"comment":"#"}`)})
+	if fr.Rows() != 1 || fr.Field("b").At(0) != "x" || !strings.HasSuffix(fr.Field("a").At(0).(string), "\n\"") {
+		t.Fatalf("rows %d", fr.Rows())
+	}
+	// The cap applies per record: many records at the limit are fine.
+	atLimit := strings.Repeat("1,", MaxColumns-1) + "1\n"
+	fr = decode(t, NewCSV(), atLimit+atLimit+atLimit, plugin.DecodeOptions{Options: json.RawMessage(`{"header":false}`)})
+	if fr.Rows() != 3 || len(fr.Fields) != MaxColumns {
+		t.Fatalf("rows %d fields %d", fr.Rows(), len(fr.Fields))
+	}
+	_, err := NewCSV().Decode(context.Background(), strings.NewReader("a\n"+strings.Repeat(",", MaxColumns)+"\n"), plugin.DecodeOptions{})
+	if !errors.Is(err, ErrDecode) || !strings.Contains(err.Error(), "line 2 has more than 1024 columns") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWideRecordIsRejectedBeforeAllocation(t *testing.T) {
+	in := strings.Repeat(",", 8<<20) // 8 MiB of delimiters in one record
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := NewCSV().Decode(context.Background(), strings.NewReader(in), plugin.DecodeOptions{})
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, ErrDecode) {
+		t.Fatalf("err = %v", err)
+	}
+	// Without the guard encoding/csv allocates >1 GiB here; with it, a few buffers.
+	if got := after.TotalAlloc - before.TotalAlloc; got > 4<<20 {
+		t.Fatalf("allocated %d bytes before rejecting the record", got)
+	}
+}
+
+func TestDelimiterMustBeASCII(t *testing.T) {
+	for _, d := range []string{`"§"`, `"\u0001"`, `"€"`} {
+		_, err := NewCSV().Decode(context.Background(), strings.NewReader("a\n"), plugin.DecodeOptions{Options: json.RawMessage(`{"delimiter":` + d + `}`)})
+		if err == nil || !strings.Contains(err.Error(), "ASCII") {
+			t.Errorf("%s: err = %v", d, err)
+		}
+	}
+	fr := decode(t, NewTSV(), "a|b\n1|2\n", plugin.DecodeOptions{Options: json.RawMessage(`{"delimiter":"|"}`)})
+	if len(fr.Fields) != 2 {
+		t.Fatal("custom TSV delimiter")
 	}
 }

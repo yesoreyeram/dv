@@ -148,9 +148,10 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
 - AC5: the format is given explicitly (`format`) or chosen by file extension (`.csv` → csv,
   `.tsv`/`.tab` → tsv, case-insensitive). Unknown formats or extensions are rejected.
 - AC6: decoding: header row on by default (blank names become `Column N`, duplicates get a
-  ` (2)`, ` (3)` … suffix); configurable single-character delimiter and comment character;
+  ` (2)`, ` (3)` … suffix); configurable delimiter and comment character (one printable ASCII character or tab);
   a UTF-8 BOM is stripped; rows with a different number of columns fail with the line
-  number; at most 1024 columns. CSV follows RFC 4180 quoting; TSV has no quoting (quotes
+  number; at most 1024 columns, enforced while bytes stream in (before a record is
+  allocated). CSV follows RFC 4180 quoting; TSV has no quoting (quotes
   are literal data, per IANA `text/tab-separated-values`). Input after the row-limit
   overflow record is never parsed, so it cannot fail a truncated result.
 - AC7: types are inferred per column from non-empty cells: `bool` (`true`/`false`, any
