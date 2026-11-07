@@ -180,6 +180,7 @@ func initializeFileScenario(sc *godog.ScenarioContext) {
 		return os.Symlink(w.outside, filepath.Join(w.rootDir, name))
 	})
 	sc.Step(`^a row limit of (\d+)$`, func(n int) error { w.limits.MaxRows = n; return nil })
+	sc.Step(`^a byte limit of (\d+)$`, func(n int) error { w.limits.MaxBytes = int64(n); return nil })
 	sc.Step(`^the default row limit for queries is (\d+)$`, func(n int) error { w.defaults.MaxRows = n; return nil })
 	sc.Step(`^a file size cap of (\d+) bytes$`, func(n int) error { w.maxBytes = int64(n); return nil })
 

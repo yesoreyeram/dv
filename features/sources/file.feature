@@ -55,6 +55,21 @@ Feature: CSV and TSV files from a configured root
     Then the frame has 10 rows
     And the frame is marked truncated
 
+  Scenario: Rows dropped by the byte limit do not change inferred types
+    Given the file "codes.csv" contains:
+      """
+      v
+      1
+      2
+      x
+      """
+    And a byte limit of 60
+    When I query the file "codes.csv"
+    Then the frame field "v" has type "number"
+    And the frame field "v" has values "1, 2"
+    And the frame is marked truncated
+    And the frame has a warning notice mentioning "byte limit"
+
   Scenario: A query that sets no limits is still bounded by the default limits
     Given the file "big.csv" contains 50 numeric rows
     And the default row limit for queries is 20
