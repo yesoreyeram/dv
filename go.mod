@@ -1,6 +1,6 @@
 module github.com/yesoreyeram/dv
 
-go 1.24.0
+go 1.24.7
 
 require github.com/cucumber/godog v0.15.0
 

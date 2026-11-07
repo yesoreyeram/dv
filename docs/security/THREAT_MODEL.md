@@ -85,6 +85,11 @@ instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → p
 | E | A query names a root the instance is not configured for | The root comes only from the instance's `jsonData.root`, never from the query body; unknown query keys are rejected | `file_test.go` |
 | S/R | Unauthenticated users read files | Out of scope until M3: the query API (B-014) will require an authenticated Viewer and audit-log reads (B-020, NFR-AUD-001). Until then roots should only contain non-sensitive data | — |
 
+Toolchain dependency: `os.Root` in Go 1.24.0 let a symlink to `../` inside a root reach
+files in the parent directory (caught by `TestOpenErrors` in CI's minimum-version job).
+`go.mod` therefore requires Go ≥ 1.24.7, so dv cannot be built with an affected
+standard library; CI keeps testing both that minimum and `stable`.
+
 Residual risks: CSV formula injection matters on *export* (not implemented yet; the
 exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
 bombs are not reachable; decompression must enforce the same output cap when added.
