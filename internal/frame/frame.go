@@ -101,21 +101,36 @@ func (f *Frame) Field(name string) *Field {
 // AppendRow appends one value per field atomically: if any value is rejected, no field
 // is modified (FR-010 AC2/AC3).
 func (f *Frame) AppendRow(vals ...any) error {
+	norm, err := f.normalizeRow(vals)
+	if err != nil {
+		return err
+	}
+	f.commitRow(norm)
+	return nil
+}
+
+// normalizeRow validates a row against the fields and returns the values converted to
+// their canonical Go types, without modifying the frame.
+func (f *Frame) normalizeRow(vals []any) ([]any, error) {
 	if len(vals) != len(f.Fields) {
-		return fmt.Errorf("row has %d values, frame has %d fields: %w", len(vals), len(f.Fields), ErrLength)
+		return nil, fmt.Errorf("row has %d values, frame has %d fields: %w", len(vals), len(f.Fields), ErrLength)
 	}
 	norm := make([]any, len(vals))
 	for i, v := range vals {
 		nv, err := f.Fields[i].normalize(v)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		norm[i] = nv
 	}
+	return norm, nil
+}
+
+// commitRow appends an already normalised row.
+func (f *Frame) commitRow(norm []any) {
 	for i, nv := range norm {
 		f.Fields[i].values = append(f.Fields[i].values, nv)
 	}
-	return nil
 }
 
 // AddNotice attaches a notice to the frame.

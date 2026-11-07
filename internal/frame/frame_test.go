@@ -277,6 +277,31 @@ func TestBuilderTypeErrorDoesNotTruncate(t *testing.T) {
 	}
 }
 
+// An invalid row that would also exceed a limit must report its type/length error and
+// leave the builder usable (Codex review on #3).
+func TestBuilderValidatesBeforeLimits(t *testing.T) {
+	one := int64(estimateSize(1.0))
+	b, _ := NewBuilder("x", Limits{MaxBytes: one}, mustField(t, "n", TypeNumber))
+	if err := b.AppendRow(strings.Repeat("x", 100)); !errors.Is(err, ErrType) {
+		t.Fatalf("want ErrType, got %v", err)
+	}
+	if err := b.AppendRow(1, 2); !errors.Is(err, ErrLength) {
+		t.Fatalf("want ErrLength, got %v", err)
+	}
+	if b.Frame().Meta.Truncated {
+		t.Fatal("invalid rows must not truncate the builder")
+	}
+	if err := b.AppendRow(1.0); err != nil {
+		t.Fatalf("valid row that fits rejected: %v", err)
+	}
+
+	full, _ := NewBuilder("x", Limits{MaxRows: 1}, mustField(t, "n", TypeNumber))
+	_ = full.AppendRow(1)
+	if err := full.AppendRow("x"); !errors.Is(err, ErrType) || full.Frame().Meta.Truncated {
+		t.Fatalf("invalid row at the row limit: %v truncated=%v", err, full.Frame().Meta.Truncated)
+	}
+}
+
 func TestNewBuilderValidation(t *testing.T) {
 	if _, err := NewBuilder("x", Limits{MaxRows: -1}); err == nil {
 		t.Error("negative limit accepted")
