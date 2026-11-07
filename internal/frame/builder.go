@@ -43,24 +43,27 @@ func NewBuilder(name string, limits Limits, fields ...*Field) (*Builder, error) 
 
 // AppendRow adds a row unless a limit would be exceeded, in which case the frame is
 // marked truncated, a warning notice is added, and ErrLimitReached is returned. Further
-// calls keep returning ErrLimitReached. Type errors are returned without truncating.
+// calls keep returning ErrLimitReached. The row is validated first, so type and length
+// errors are returned without truncating, even when the invalid row would not fit.
 func (b *Builder) AppendRow(vals ...any) error {
 	if b.done {
 		return ErrLimitReached
+	}
+	norm, err := b.frame.normalizeRow(vals)
+	if err != nil {
+		return err
 	}
 	if b.limits.MaxRows > 0 && b.frame.Rows() >= b.limits.MaxRows {
 		return b.stop(fmt.Sprintf("Result truncated at the row limit of %d rows.", b.limits.MaxRows))
 	}
 	var size int64
-	for _, v := range vals {
+	for _, v := range norm {
 		size += int64(estimateSize(v))
 	}
 	if b.limits.MaxBytes > 0 && b.bytes+size > b.limits.MaxBytes {
 		return b.stop(fmt.Sprintf("Result truncated at the byte limit of %d bytes.", b.limits.MaxBytes))
 	}
-	if err := b.frame.AppendRow(vals...); err != nil {
-		return err
-	}
+	b.frame.commitRow(norm)
 	b.bytes += size
 	return nil
 }
