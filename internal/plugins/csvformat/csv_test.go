@@ -331,3 +331,39 @@ func TestOverflowRowDoesNotAffectTypesOrNotices(t *testing.T) {
 		t.Fatalf("type inferred from the overflow row: %s", fr.Field("v").Type)
 	}
 }
+
+// cancelAtEOF cancels the context when the input is exhausted, i.e. after reading but
+// before the frame is built.
+type cancelAtEOF struct {
+	r      *strings.Reader
+	cancel context.CancelFunc
+}
+
+func (c cancelAtEOF) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if err != nil {
+		c.cancel()
+	}
+	return n, err
+}
+
+func TestCancellationAfterReading(t *testing.T) {
+	for _, f := range []*Format{NewCSV(), NewTSV()} {
+		for _, rowsN := range []int{1, 3 * cancelCheckEvery} {
+			ctx, cancel := context.WithCancel(context.Background())
+			in := cancelAtEOF{r: strings.NewReader(rows(rowsN)), cancel: cancel}
+			if _, err := f.Decode(ctx, in, plugin.DecodeOptions{}); !errors.Is(err, context.Canceled) {
+				t.Fatalf("%s/%d: err = %v", f.meta.ID, rowsN, err)
+			}
+		}
+	}
+	// Each check point in build is reachable directly.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := build(ctx, []string{"v"}, [][]string{{"1"}}, plugin.DecodeOptions{FieldTypes: map[string]frame.FieldType{"v": frame.TypeNumber}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("build: %v", err)
+	}
+	if _, err := build(ctx, nil, nil, plugin.DecodeOptions{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("build without fields: %v", err)
+	}
+}

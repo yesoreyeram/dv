@@ -149,7 +149,7 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 	if err != nil {
 		return nil, err
 	}
-	fr, err := build(names, records, opts)
+	fr, err := build(ctx, names, records, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,9 @@ func truncateUTF8(s string, n int) string {
 	return s[:n]
 }
 
-func build(names []string, records [][]string, opts plugin.DecodeOptions) (*frame.Frame, error) {
+// build infers types and converts records into a frame. It checks ctx between columns
+// and every cancelCheckEvery rows so a cancelled query stops consuming CPU.
+func build(ctx context.Context, names []string, records [][]string, opts plugin.DecodeOptions) (*frame.Frame, error) {
 	types := make([]frame.FieldType, len(names))
 	fields := make([]*frame.Field, len(names))
 	// The overflow record only signals truncation; it must not influence types.
@@ -329,6 +331,9 @@ func build(names []string, records [][]string, opts plugin.DecodeOptions) (*fram
 		sample = sample[:m]
 	}
 	for i, name := range names {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		t, ok := opts.FieldTypes[name]
 		if !ok {
 			t = infer(sample, i)
@@ -346,7 +351,12 @@ func build(names []string, records [][]string, opts plugin.DecodeOptions) (*fram
 	failed := make([]int, len(names))
 	rowFailed := make([]bool, len(names))
 	row := make([]any, len(names))
-	for _, rec := range records {
+	for n, rec := range records {
+		if n%cancelCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		for i, cell := range rec {
 			v, ok := convert(types[i], cell)
 			rowFailed[i] = !ok
@@ -363,6 +373,9 @@ func build(names []string, records [][]string, opts plugin.DecodeOptions) (*fram
 				failed[i]++
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	fr := b.Frame()
 	for i, n := range failed {
