@@ -132,3 +132,7 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Not verified locally: govulncheck, gitleaks, Docker build — left to CI.
 - Found, not fixed (PR #2 scope): B-050, on a 390 px viewport the active nav link starts off-screen (no page-level horizontal scroll, so reflow is fine).
 - Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 + B-040, then B-013 JSON; B-050.
+- Follow-up in the same run (~22:15 UTC): Codex P2 on `ebacc6e` (`csv.go` `read`). The reader charged raw text against `MaxBytes`, so values whose text costs more than the converted value were dropped before `build` saw them. Reproduced with the reviewer's input: `v\n1234567890123456789\n` and `MaxBytes: 24` returned an empty, truncated `string` column, which the new godog scenario caught. Spec first (FR-011 AC8, F-03). Fix: the byte limit is now the result budget applied on converted values only. Raw records get a separate, overflow-safe guard of 2× `MaxBytes` with its own notice, so peak decode memory is ≈ 3× the byte limit.
+  - `TestByteLimit` had encoded the bug: 12-digit ints at 100 bytes now keep 4 rows instead of 3.
+  - New tests: `TestByteLimitCountsConvertedValues` and `TestRawBufferGuard`.
+  - Evidence: race tests, lint, the real godog suite and a 40 s `FuzzDecode` are all green.
