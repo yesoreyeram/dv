@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -201,21 +202,65 @@ func TestBuilderRowLimit(t *testing.T) {
 }
 
 func TestBuilderByteLimit(t *testing.T) {
-	b, err := NewBuilder("x", Limits{MaxBytes: 40}, mustField(t, "s", TypeString))
+	b, err := NewBuilder("x", Limits{MaxBytes: 72}, mustField(t, "s", TypeString))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.AppendRow("0123"); err != nil { // 4+16 = 20 bytes
+	if err := b.AppendRow("0123"); err != nil { // 16 slot + 16 header + 4 = 36 bytes
 		t.Fatal(err)
 	}
-	if err := b.AppendRow("abcd"); err != nil { // 40 bytes total: at the limit, allowed
+	if err := b.AppendRow("abcd"); err != nil { // 72 bytes total: at the limit, allowed
 		t.Fatal(err)
 	}
 	if err := b.AppendRow("x"); !errors.Is(err, ErrLimitReached) {
 		t.Fatalf("want ErrLimitReached, got %v", err)
 	}
-	if b.Bytes() != 40 || b.Frame().Rows() != 2 || !strings.Contains(b.Frame().Meta.Notices[0].Text, "byte limit") {
+	if b.Bytes() != 72 || b.Frame().Rows() != 2 || !strings.Contains(b.Frame().Meta.Notices[0].Text, "byte limit") {
 		t.Fatalf("bytes=%d rows=%d", b.Bytes(), b.Frame().Rows())
+	}
+}
+
+func TestEstimateSizeCountsTheInterfaceSlot(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		v    any
+		want int
+	}{
+		{nil, 16}, {true, 16}, {int64(1), 24}, {3.5, 24}, {7, 24},
+		{"", 32}, {"abcd", 36},
+		{json.RawMessage(`{}`), 42}, {[]byte("xy"), 42},
+		{now, 40}, {&now, 40},
+	}
+	for _, c := range cases {
+		if got := estimateSize(c.v); got != c.want {
+			t.Errorf("estimateSize(%T %v) = %d, want %d", c.v, c.v, got, c.want)
+		}
+	}
+}
+
+// The byte limit is a memory guard: real retained heap must stay within a small factor
+// of the estimate (the remaining gap is append growth slack in the []any backing arrays).
+func TestBuilderByteEstimateTracksRealHeap(t *testing.T) {
+	const rows = 200_000
+	fields := []*Field{mustField(t, "n", TypeNumber), mustField(t, "s", TypeString), mustField(t, "z", TypeNumber)}
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	b, err := NewBuilder("x", Limits{}, fields...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range rows {
+		if err := b.AppendRow(float64(i)+0.5, "host", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	heap := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+	runtime.KeepAlive(b)
+	if ratio := float64(heap) / float64(b.Bytes()); ratio > 1.6 {
+		t.Fatalf("retained heap %d is %.2fx the estimate %d", heap, ratio, b.Bytes())
 	}
 }
 

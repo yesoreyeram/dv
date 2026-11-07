@@ -53,7 +53,7 @@ Defaults < JSON file (`DV_CONFIG_FILE`) < environment. Invalid configuration fai
 | `DV_WEB_DIR` | _(empty)_ | Directory of the built SPA; empty = API only |
 | `DV_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `DV_LOG_FORMAT` | `json` | `json` or `text` |
-| `DV_RATE_LIMIT_RPS` / `DV_RATE_LIMIT_BURST` | `20` / `40` | Per-client token bucket; `0` RPS disables |
+| `DV_RATE_LIMIT_RPS` / `DV_RATE_LIMIT_BURST` | `20` / `40` | Per-client token bucket (IPv4 address / IPv6 /64); `0` RPS disables, otherwise 0.01–1e6 RPS and burst 1–1e6 |
 | `DV_READ_HEADER_TIMEOUT`, `DV_READ_TIMEOUT`, `DV_WRITE_TIMEOUT`, `DV_IDLE_TIMEOUT` | `5s`, `30s`, `60s`, `120s` | HTTP server timeouts |
 | `DV_SHUTDOWN_TIMEOUT` | `15s` | Graceful drain window |
 | `DV_READINESS_CHECK_TIMEOUT` | `2s` | Per-check timeout for `/readyz` |

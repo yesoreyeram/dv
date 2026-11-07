@@ -14,7 +14,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | NFR-SEC-005 | Outbound HTTP (API/URL sources) passes an SSRF guard: scheme allow-list, DNS-resolved IP checks against private/link-local/loopback/metadata ranges, redirect re-validation, timeouts, size caps. | M | Unit + BDD tests | Planned (M5) |
 | NFR-SEC-006 | File sources resolve paths inside configured roots only (no `..`, symlink escape, absolute paths); uses `os.Root`. | M | Unit + BDD tests | In progress (FR-011) |
 | NFR-SEC-007 | Every HTTP response carries: strict `Content-Security-Policy` (no `unsafe-inline` scripts), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` + `frame-ancestors 'none'`, `Permissions-Policy`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`; HSTS when TLS. | M | Unit + BDD tests | In progress |
-| NFR-SEC-008 | Per-client rate limiting on the API (token bucket; `429` + `Retry-After`). | M | Unit + BDD tests | In progress |
+| NFR-SEC-008 | Per-client rate limiting on the API (token bucket; `429` + `Retry-After`). Clients are keyed by IPv4 address or IPv6 /64. The client table is bounded; when it is full, newcomers share one overflow bucket (no unbounded growth, no total lockout) and eviction sweeps run at most once per second. `rateLimitRps` must be `0` (disabled) or finite in [0.01, 1e6]; burst in [1, 1e6]; NaN/Inf rejected at start-up. | M | Unit + BDD tests | In progress |
 | NFR-SEC-009 | Input validation: request bodies size-limited (default 1 MiB), JSON decoded with unknown-field rejection, configuration validated at startup (fail fast). | M | Unit tests | In progress |
 | NFR-SEC-010 | CI runs `govulncheck`, `gosec` (via golangci-lint), `pnpm audit --audit-level high`, and secret scanning (gitleaks) on every PR; findings fail the build. | M | CI | In progress |
 | NFR-SEC-011 | Containers run as non-root on a distroless/static base, read-only root filesystem, no shell, all capabilities dropped. | M | Dockerfile review; CI image build | In progress |
@@ -28,7 +28,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | --- | --- | --- | --- | --- |
 | NFR-PERF-001 | Health/readiness endpoints p99 < 10 ms on a single core under 500 rps. | S | Benchmark (`go test -bench`) | Planned |
 | NFR-PERF-002 | Stateless API nodes; horizontal scaling behind a load balancer (state in DB/cache). | M | Architecture (ADR-0001) | In progress |
-| NFR-PERF-003 | Query execution is streaming/bounded: row and byte limits per query, configurable. | M | Tests | In progress (frame builder limits) |
+| NFR-PERF-003 | Query execution is streaming/bounded: row and byte limits per query, configurable. The byte limit must not under-estimate retained memory by more than 1.6×, and sources apply safe default limits when a query sets none. | M | Tests | In progress (frame builder limits) |
 | NFR-PERF-004 | Initial UI JS bundle ≤ 250 KB gzip; routes code-split as they grow. | S | Build size check | Planned |
 
 ## Availability & resilience (AVAIL)

@@ -39,6 +39,9 @@ in-memory model.
   transported; this matches browser `Date` precision.
 - `int64` values are encoded exactly; JavaScript clients lose precision beyond ±2^53.
 - `NaN`/`±Inf` are stored as null because JSON cannot represent them.
-- `Builder` limits: `MaxRows` and `MaxBytes` (estimated: 8 B per number/time/bool, length
-  of strings/JSON + 16 B overhead). Hitting a limit returns `frame.ErrLimitReached`, sets
+- `Builder` limits: `MaxRows` and `MaxBytes`. `MaxBytes` is an estimate of retained memory
+  on 64-bit platforms: every value costs its 16 B `[]any` slot, plus 8 B for a boxed
+  number, 24 B for a time, 16 B + length for a string, 24 B + length for JSON (nil and
+  bool: slot only). Growth slack in the backing arrays is not counted; a test keeps real
+  retained heap within 1.6× of the estimate. Hitting a limit returns `frame.ErrLimitReached`, sets
   `Meta.Truncated` and appends a `warning` notice; the rows already added are kept.

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -298,8 +299,15 @@ func TestRateLimiterBoundedTable(t *testing.T) {
 	l := NewRateLimiter(1, 1, 2, clk.Now)
 	l.Allow("a")
 	l.Allow("b")
-	if ok, _ := l.Allow("c"); ok {
-		t.Fatal("table full of active clients must fail closed")
+	// Table full of active clients: newcomers share one overflow bucket (burst 1).
+	if ok, _ := l.Allow("c"); !ok {
+		t.Fatal("first newcomer should get the overflow token")
+	}
+	if ok, wait := l.Allow("d"); ok || wait <= 0 {
+		t.Fatalf("second newcomer must share the drained overflow bucket: ok=%v wait=%v", ok, wait)
+	}
+	if l.Len() != 2 {
+		t.Fatalf("overflow must not grow the table: len = %d", l.Len())
 	}
 	clk.Add(4 * time.Minute)
 	if ok, _ := l.Allow("c"); !ok {
@@ -322,6 +330,81 @@ func TestRateLimiterSweepFullTable(t *testing.T) {
 	clk.Add(90 * time.Second) // a idle 3m30s, b idle 1m30s; periodic sweep removes a
 	if ok, _ := l.Allow("c"); !ok {
 		t.Fatal("sweep should free a slot")
+	}
+}
+
+func TestRateLimiterFullTableSweepIsThrottled(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	l := NewRateLimiter(1000, 1000, 2, clk.Now)
+	l.Allow("a")
+	l.Allow("b")
+	clk.Add(10 * time.Millisecond)
+	l.Allow("c") // full, but a sweep ran <1s ago: straight to overflow
+	swept := l.lastSweep
+	for i := range 50 {
+		clk.Add(time.Millisecond)
+		l.Allow(fmt.Sprintf("n%d", i))
+	}
+	if !l.lastSweep.Equal(swept) {
+		t.Fatal("newcomers on a full table must not sweep more than once per interval")
+	}
+	clk.Add(sweepMinInterval)
+	l.Allow("z")
+	if l.lastSweep.Equal(swept) {
+		t.Fatal("sweep should run again after the interval")
+	}
+}
+
+func TestRateLimiterFullTableIsNotOSquared(t *testing.T) {
+	// 20k entries, 20k newcomers: with a per-miss O(n) sweep this is ~4e8 map visits.
+	const n = 20_000
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	l := NewRateLimiter(1, 1, n, clk.Now)
+	for i := range n {
+		l.Allow(fmt.Sprintf("a%d", i))
+	}
+	start := time.Now()
+	for i := range n {
+		l.Allow(fmt.Sprintf("b%d", i))
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("newcomers on a full table took %v", d)
+	}
+}
+
+func TestClientKey(t *testing.T) {
+	cases := map[string]string{
+		"192.0.2.1:1234":             "192.0.2.1",
+		"[2001:db8:1:2:aaaa::1]:443": "2001:db8:1:2::/64",
+		"[2001:db8:1:2:bbbb::9]:443": "2001:db8:1:2::/64",
+		"[2001:db8:1:3::1]:443":      "2001:db8:1:3::/64",
+		"[::ffff:192.0.2.7]:80":      "192.0.2.7",
+		"[fe80::1%eth0]:80":          "fe80::/64",
+		"garbage":                    "garbage",
+		"[not-an-ip]:80":             "not-an-ip",
+	}
+	for remote, want := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = remote
+		if got := ClientKey(req); got != want {
+			t.Errorf("ClientKey(%q) = %q, want %q", remote, got, want)
+		}
+	}
+}
+
+func TestRateLimitMiddlewareSharesIPv6Slash64(t *testing.T) {
+	l := NewRateLimiter(1, 1, 10, nil)
+	h := l.Middleware(http.HandlerFunc(ok))
+	codes := make([]int, 0, 2)
+	for _, remote := range []string{"[2001:db8::1]:1", "[2001:db8::2]:1"} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = remote
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		codes = append(codes, rr.Code)
+	}
+	if codes[0] != 200 || codes[1] != http.StatusTooManyRequests {
+		t.Fatalf("addresses in one /64 must share a bucket: %v", codes)
 	}
 }
 
