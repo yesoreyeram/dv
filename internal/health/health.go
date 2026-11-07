@@ -64,7 +64,8 @@ type Registry struct {
 }
 
 // New returns a registry whose checks each run with the given timeout. Completed
-// evaluations are reused for DefaultCacheTTL; see SetCacheTTL.
+// evaluations are reused for DefaultCacheTTL, then served stale for up to the timeout
+// while they refresh; see SetCacheTTL and Check.
 func New(timeout time.Duration, log *slog.Logger) *Registry {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -72,8 +73,9 @@ func New(timeout time.Duration, log *slog.Logger) *Registry {
 	return &Registry{checks: map[string]*entry{}, timeout: timeout, log: log, ttl: DefaultCacheTTL, now: time.Now}
 }
 
-// SetCacheTTL sets how long a completed evaluation is reused. Zero disables reuse;
-// concurrent probes still share a single in-flight evaluation. Negative values are
+// SetCacheTTL sets how long a completed evaluation is reused. Zero disables reuse,
+// including stale-while-revalidate; concurrent probes still share a single in-flight
+// evaluation. Negative values are
 // treated as zero.
 func (r *Registry) SetCacheTTL(d time.Duration) {
 	r.cacheMu.Lock()
@@ -103,22 +105,33 @@ func (r *Registry) SetDraining() { r.draining.Store(true) }
 func (r *Registry) Draining() bool { return r.draining.Load() }
 
 // Check returns the aggregated readiness. Concurrent callers share one evaluation,
-// and a completed evaluation is reused for the cache TTL (FR-002 AC5). If ctx ends
-// before the shared evaluation completes, every check is reported as failed.
+// and a completed evaluation is reused for the cache TTL (FR-002 AC5).
+//
+// Once the TTL has expired, the previous result is still returned immediately for up
+// to the check timeout longer while one shared refresh runs in the background
+// (stale-while-revalidate, FR-002 AC7). A refresh cannot take longer than the check
+// timeout, so under continuous probing callers never wait for a slow dependency, and
+// a result is never more than TTL + check timeout old. Callers wait for the
+// evaluation when there is no usable result: none yet, too old, invalidated by
+// Register or SetCacheTTL, or caching disabled.
+//
+// If ctx ends before the awaited evaluation completes, every check is reported as
+// failed.
 func (r *Registry) Check(ctx context.Context) Report {
 	r.cacheMu.Lock()
-	if c := r.cached; c != nil && c.gen == r.gen && r.now().Sub(r.cachedAt) < r.ttl {
-		r.cacheMu.Unlock()
-		return r.finalize(c.rep)
+	if c := r.cached; c != nil && c.gen == r.gen {
+		age := r.now().Sub(r.cachedAt)
+		if age < r.ttl {
+			r.cacheMu.Unlock()
+			return r.finalize(c.rep)
+		}
+		if age < r.ttl+r.timeout {
+			r.startLocked(ctx)
+			r.cacheMu.Unlock()
+			return r.finalize(c.rep)
+		}
 	}
-	ev := r.inflight
-	if ev == nil {
-		ev = &evaluation{done: make(chan struct{}), gen: r.gen}
-		r.inflight = ev
-		// Detach from the first caller's cancellation (but keep its values for logging)
-		// so one impatient client cannot fail the result every other caller shares.
-		go r.evaluate(context.WithoutCancel(ctx), ev)
-	}
+	ev := r.startLocked(ctx)
 	r.cacheMu.Unlock()
 
 	select {
@@ -127,6 +140,20 @@ func (r *Registry) Check(ctx context.Context) Report {
 	case <-ctx.Done():
 		return r.finalize(r.allFailed())
 	}
+}
+
+// startLocked returns the in-flight evaluation, starting one if none is running.
+// The caller must hold cacheMu.
+func (r *Registry) startLocked(ctx context.Context) *evaluation {
+	if r.inflight == nil {
+		ev := &evaluation{done: make(chan struct{}), gen: r.gen}
+		r.inflight = ev
+		// Detach from the caller's cancellation (but keep its values for logging) so
+		// one impatient client cannot fail the result every other caller shares, and
+		// a background refresh outlives the probe that triggered it.
+		go r.evaluate(context.WithoutCancel(ctx), ev)
+	}
+	return r.inflight
 }
 
 func (r *Registry) evaluate(ctx context.Context, ev *evaluation) {

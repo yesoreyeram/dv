@@ -146,9 +146,124 @@ func TestResultIsCachedForTTL(t *testing.T) {
 		t.Fatalf("calls within TTL = %d, want 1", got)
 	}
 	clk.advance(DefaultCacheTTL)
+	r.Check(context.Background()) // stale result; refresh runs in the background
+	eventually(t, func() bool { return calls.Load() == 2 })
+	// Past TTL + timeout nothing stale is served: the caller waits and the check runs.
+	clk.advance(DefaultCacheTTL + time.Second)
 	r.Check(context.Background())
+	if got := calls.Load(); got != 3 {
+		t.Fatalf("calls after stale bound = %d, want 3", got)
+	}
+}
+
+// eventually polls cond for up to two seconds.
+func eventually(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not met within 2s")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// checkWithin runs Check and fails the test if it takes longer than d, which is how
+// these tests tell a stale answer from one that waited for the checks.
+func checkWithin(t *testing.T, r *Registry, d time.Duration) Report {
+	t.Helper()
+	got := make(chan Report, 1)
+	go func() { got <- r.Check(context.Background()) }()
+	select {
+	case rep := <-got:
+		return rep
+	case <-time.After(d):
+		t.Fatalf("Check blocked for more than %s", d)
+		return Report{}
+	}
+}
+
+// FR-002 AC7: after the TTL, probes get the previous result at once while a single
+// refresh runs; the refreshed result replaces it when it completes.
+func TestExpiredResultIsServedWhileRefreshing(t *testing.T) {
+	r, clk := newClocked(time.Second)
+	var calls atomic.Int32
+	var failing atomic.Bool
+	gate := make(chan struct{})
+	r.Register("db", func(context.Context) error {
+		if calls.Add(1) == 1 {
+			return nil
+		}
+		<-gate // the refresh is slow...
+		failing.Store(true)
+		return errors.New("down") // ...and finds the dependency down
+	})
+	if rep := r.Check(context.Background()); !rep.Ready {
+		t.Fatalf("first probe: %+v", rep)
+	}
+
+	clk.advance(DefaultCacheTTL)
+	for i := range 20 {
+		if rep := checkWithin(t, r, 500*time.Millisecond); !rep.Ready || rep.Checks["db"] != Pass {
+			t.Fatalf("probe %d during refresh: %+v", i, rep)
+		}
+	}
+	eventually(t, func() bool { return calls.Load() == 2 })
+	time.Sleep(10 * time.Millisecond)
 	if got := calls.Load(); got != 2 {
-		t.Fatalf("calls after TTL = %d, want 2", got)
+		t.Fatalf("probes during one refresh started %d check runs, want 2", got)
+	}
+
+	close(gate)
+	eventually(t, failing.Load)
+	eventually(t, func() bool { return !r.Check(context.Background()).Ready })
+	if rep := r.Check(context.Background()); rep.Checks["db"] != Fail {
+		t.Fatalf("refreshed result not served: %+v", rep)
+	}
+}
+
+// FR-002 AC7: a result older than TTL + check timeout is never served.
+func TestResultOlderThanStaleBoundIsNotServed(t *testing.T) {
+	const timeout = 200 * time.Millisecond
+	r, clk := newClocked(timeout)
+	var down atomic.Bool
+	r.Register("db", func(context.Context) error {
+		if down.Load() {
+			return errors.New("down")
+		}
+		return nil
+	})
+	if rep := r.Check(context.Background()); !rep.Ready {
+		t.Fatalf("first probe: %+v", rep)
+	}
+	down.Store(true)
+	clk.advance(DefaultCacheTTL + timeout) // exactly at the bound: no longer usable
+	if rep := r.Check(context.Background()); rep.Ready || rep.Checks["db"] != Fail {
+		t.Fatalf("result older than the stale bound was served: %+v", rep)
+	}
+}
+
+func TestStaleResultStillHonoursDraining(t *testing.T) {
+	r, clk := newClocked(time.Second)
+	r.Register("a", func(context.Context) error { return nil })
+	if rep := r.Check(context.Background()); !rep.Ready {
+		t.Fatalf("got %+v", rep)
+	}
+	clk.advance(DefaultCacheTTL)
+	r.SetDraining()
+	if rep := checkWithin(t, r, 500*time.Millisecond); rep.Ready || rep.Status != "not_ready" {
+		t.Fatalf("stale result ignored draining: %+v", rep)
+	}
+}
+
+func TestRegisterInvalidatesStaleResult(t *testing.T) {
+	r, clk := newClocked(time.Second)
+	r.Register("a", func(context.Context) error { return nil })
+	r.Check(context.Background())
+	clk.advance(DefaultCacheTTL)
+	r.Register("b", func(context.Context) error { return errors.New("down") })
+	if rep := r.Check(context.Background()); rep.Ready || rep.Checks["b"] != Fail {
+		t.Fatalf("invalidated result served stale: %+v", rep)
 	}
 }
 
@@ -234,8 +349,10 @@ func TestStuckCheckIsNotRestarted(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := starts.Load(); got != 2 {
-		t.Fatalf("starts after recovery = %d, want 2", got)
+	// 2: the run that recovered. A stale-served probe may also have started one
+	// more background refresh by now (FR-002 AC7), which is fine once it is free.
+	if got := starts.Load(); got < 2 || got > 3 {
+		t.Fatalf("starts after recovery = %d, want 2 or 3", got)
 	}
 }
 
