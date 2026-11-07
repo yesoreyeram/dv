@@ -55,6 +55,20 @@ Feature: CSV and TSV files from a configured root
     Then the frame has 10 rows
     And the frame is marked truncated
 
+  Scenario: A query that sets no limits is still bounded by the default limits
+    Given the file "big.csv" contains 50 numeric rows
+    And the default row limit for queries is 20
+    When I query the file "big.csv"
+    Then the frame has 20 rows
+    And the frame is marked truncated
+
+  Scenario: An explicit row limit takes precedence over the default
+    Given the file "big.csv" contains 50 numeric rows
+    And the default row limit for queries is 20
+    And a row limit of 30
+    When I query the file "big.csv"
+    Then the frame has 30 rows
+
   Scenario Outline: Paths that could leave the root are rejected before any file access
     When I query the file "<path>"
     Then the query fails as "invalid path"

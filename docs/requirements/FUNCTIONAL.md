@@ -161,7 +161,9 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
   under an override become null and the frame gets one warning notice per field with the
   count.
 - AC8: host row/byte limits (NFR-PERF-003) apply; truncation sets `meta.truncated` with a
-  notice. Decoding honours context cancellation.
+  notice. A limit the query leaves at zero is replaced by the source default (host-set,
+  else 1,000,000 rows / 64 MiB estimated frame memory), so no query decodes unbounded.
+  Decoding honours context cancellation.
 - AC9: errors never reveal the operator's absolute root path; they use the relative path
   and a stable error kind (invalid path, not found, not a regular file, too large,
   unsupported format) so the query API (B-014) can map them to HTTP statuses.
