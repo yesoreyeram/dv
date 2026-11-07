@@ -31,3 +31,4 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
 | B-035 | Fix moderate `minimatch` advisory GHSA-g3hv-75wg-m249 (dev-only, via typescript-eslint) with a scoped override; tighten the audit gate (prod: low+, all: moderate+) | M0 | NFR-SEC-010 AC1–AC4 | In review (PR #2) |
 | B-036 | E2E scenario asserting zero CSP violations in the browser console | M1 | NFR-SEC-007 | Todo |
+| B-047 | Readiness: serve the previous result while one refresh runs (stale-while-revalidate), bounded by TTL + check timeout, so probes arriving during a slow check do not wait | M1 | FR-002 AC7, NFR-PERF-001 AC2 | In review (PR #2) |
