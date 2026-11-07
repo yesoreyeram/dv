@@ -68,3 +68,17 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
   - The same input now allocates 22 MiB and takes 40 ms. `TestStaggeredTypeChangesStayLinear` (128 MiB cap) fails on the previous code and passes now.
   - FR-011 AC7 and threat-model F-03 were updated.
 
+
+## 2026-11-07 ~17:35–18:05 UTC — NFR-PERF-001/004 verification + readiness flap fix on the open stack (no new PR)
+- Triage: PRs #2, #3, #4 open and unmerged, all 7 CI checks green, every review thread resolved, `main` unchanged. Three or more open → per the run rules this run improves the stack instead of opening a new PR.
+- Planned: close the two "Planned" NFRs owned by PR #2 that had no verification yet: NFR-PERF-001 (B-031, B-046) and NFR-PERF-004 (B-032). Requirements and Gherkin committed first (ccff39f).
+- Shipped on PR #2 ([#2](https://github.com/yesoreyeram/dv/pull/2)), then merged up into #3 and #4 (append-only, stack order unchanged):
+  - `internal/loadtest`: stdlib open-loop generator; latency measured from each request's scheduled start (no coordinated omission). 98.4 % coverage.
+  - Load tests (`perf_load_test.go`, build tag `perf`, own CI step without `-race`): 500 rps × 2 s over real TCP with `GOMAXPROCS=1` → `/healthz` p99 1.3 ms, `/readyz` p99 1.3 ms; with a 50 ms check, the check ran ≤ 3 times, p50 0.7 ms, p99 42 ms. 3 godog scenarios in `health.feature`. Benchmarks (`make bench`): ~6 µs/op per probe in-process, ~30 µs over loopback TCP.
+  - Bundle budget: `web/scripts/bundle-budget.ts` reads the built `index.html` (entry module + modulepreload + stylesheets), gzip-sums them, fails above 250 KB JS / 50 KB CSS or when no entry script is found. CI step after the build; `make size`. Current: 107.5 KB JS, 4.8 KB CSS.
+  - **Bug fix (found by this work):** a finished readiness check cleared its "running" flag only after handing back its result, so the next evaluation could see it as stuck and report `fail` (spurious 503). Seen as a flake in `TestResultIsCachedForTTL`. The flag is now cleared before the send. `TestFinishedCheckIsNeverReportedAsRunning` caught the old code in ~3/10 runs under `-race` and 0/30 after the fix (it is a race, so detection is probabilistic; the fix is by construction).
+  - First version ran the load tests with the unit tests; on a 2-core box the parallel race-instrumented packages starved the single core (p99 10.4 ms). Moved behind the `perf` tag into an isolated step rather than loosening the threshold.
+- Concurrency note: while this run worked, a PR-watching session pushed 9c0b364 to #2 (Codex finding: rate limit `/api/` only so the SPA cannot starve its own assets). This run rebased its unpushed commit on top and resolved the resulting `server_test.go` merge conflict on #3 (kept both tests).
+- Evidence (stack tip `feat/csv-file-source`): `go test -race ./internal/... ./cmd/...` green; `make perf` green; golangci-lint 0 issues (incl. `perf` tag); Vitest 57/57; UI BDD 20/20; Prettier, ESLint, tsc clean; `size` passes. Screenshots: `docs/screenshots/feat-m0-foundation/run8-*`.
+- Not verified locally: godog (gopkg.in blocked; step code type-checked against a local API stub, run by CI), govulncheck, gitleaks, Docker build. No dependency changes.
+- Next: once #2–#4 merge, B-014 `POST /api/v1/query` + B-042 + B-040, then B-013 JSON. New: B-047 stale-while-revalidate readiness.

@@ -25,8 +25,8 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-024 | RBAC middleware + roles | M3 | FR-021, NFR-SEC-003 | Todo |
 | B-025 | Envelope encryption for secrets + slog redaction handler | M3 | FR-022, NFR-SEC-002 | Todo |
 | B-030 | Bump Go to latest stable (1.25+/1.26+) once the build environment can download it; CI already also tests on `stable` | M0 | NFR-MAINT-001 | Todo |
-| B-031 | Benchmark for health endpoints | M1 | NFR-PERF-001 | Todo |
-| B-032 | Bundle-size budget check in CI | M1 | NFR-PERF-004 | Todo |
+| B-031 | Benchmarks for health endpoints (`make bench`) + 500 rps open-loop load tests (`internal/loadtest`, `make perf`, isolated CI step) | M1 | NFR-PERF-001 | In review (PR #2) |
+| B-032 | Bundle-size budget check in CI (initial JS 250 KB / CSS 50 KB gzip, `make size`) | M1 | NFR-PERF-004 | In review (PR #2) |
 | B-033 | Enforce `go mod tidy -diff` in CI (go.sum lacks hashes for test-only deps of godog because this run's sandbox could not reach proxy.golang.org) | M0 | NFR-SEC-014 | Todo |
 | B-034 | Choose and add a LICENSE (owner decision) | M0 | — | Todo |
 | B-035 | Triage moderate `minimatch` advisory (dev-only, via typescript-eslint in e2e) | M0 | NFR-SEC-010 | Todo |
@@ -39,5 +39,6 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-043 | `/readyz`: concurrent probes share one evaluation (singleflight), result reused for `DV_READINESS_CACHE_TTL` (1 s), a check stuck from an earlier probe is never restarted | M1 | FR-002 AC5/AC6, NFR-AVAIL-001, NFR-SEC-006 | In review (PR #2) |
 | B-044 | Host-level query limits in config (`queryMaxRows`/`queryMaxBytes`) wired into `builtin.Options.QueryDefaults` and `POST /api/v1/query` | M2 | NFR-PERF-003 | Todo (with B-014) |
 | B-045 | Cluster-aware rate limiting and trusted-proxy keying (limiter is per instance; see B-021) | M3 | NFR-SEC-008 | Todo |
-| B-046 | Benchmark `/readyz` under a probe flood with a slow check, to back NFR-PERF-001 with numbers (pairs with B-031) | M1 | NFR-PERF-001, FR-002 | Todo |
+| B-046 | Benchmark `/readyz` under a probe flood with a slow check, to back NFR-PERF-001 with numbers (pairs with B-031) | M1 | NFR-PERF-001, FR-002 | In review (PR #2) |
 | B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |
+| B-047 | Readiness: serve the previous result while one refresh runs (stale-while-revalidate) so probes arriving during a slow check do not wait; today they wait up to the check time (NFR-PERF-001 AC2) | M1 | FR-002, NFR-PERF-001 | Todo |
