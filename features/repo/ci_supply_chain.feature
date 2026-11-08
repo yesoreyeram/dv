@@ -4,17 +4,22 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
   So that a replaced release asset, a moving tag or a new tool version cannot
   run in CI with the job's token unless a reviewed commit allowed it.
 
-  Scenario: A download verified against a committed SHA-256 passes
+  Downloads go through scripts/fetch-verified.sh, which fetches, verifies and only then
+  writes the output file. Checking shell scripts for a correct hand-written verification
+  proved unsound (conditional blocks, heredocs, manifests, ignored failures), so any
+  other downloader is refused outright.
+
+  Scenario: A download through the verifying helper passes
     Given a workflow step that runs:
       """
-      curl -sSfLo tool.tar.gz https://example.com/tool_1.2.3_linux_x64.tar.gz
-      echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool.tar.gz" | sha256sum -c -
-      tar -xzf tool.tar.gz tool
+      scripts/fetch-verified.sh https://example.com/tool_1.2.3.tar.gz a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb tool.tar.gz
+      ./scripts/fetch-verified.sh "https://example.com/b.zip" 'b65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb' b.zip
+      tar -xzf tool.tar.gz tool && unzip b.zip
       """
     When the CI supply-chain policy checks the workflow
     Then the workflow passes the policy
 
-  Scenario Outline: An unverified or unpinned tool fails the policy
+  Scenario Outline: Any other download fails the policy
     Given a workflow step that runs:
       """
       <script>
@@ -23,95 +28,69 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
     Then the policy reports "<rule>"
 
     Examples:
-      | script                                                                  | rule                 |
-      | curl -sSfLo tool.tar.gz https://example.com/tool.tar.gz                 | download-unverified  |
-      | curl -sSfL https://example.com/tool.tar.gz \| tar -xz tool              | download-piped       |
-      | curl -sSfL https://example.com/install.sh \| bash                       | download-piped       |
-      | wget -qO- https://example.com/install.sh \| sh                          | download-piped       |
-      | go run golang.org/x/vuln/cmd/govulncheck@latest ./...                   | go-tool-unpinned     |
-      | go install github.com/example/tool@main                                 | go-tool-unpinned     |
+      | script                                                                                                                                  | rule                |
+      | curl -sSfLo tool.tar.gz https://example.com/tool.tar.gz                                                                                 | download-unverified |
+      | curl -sSfLo t https://e.com/t; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  t" \| sha256sum -c -; ./t         | download-unverified |
+      | wget -q https://example.com/tool                                                                                                        | download-unverified |
+      | /usr/bin/curl -fLo t https://example.com/t                                                                                              | download-unverified |
+      | command wget https://example.com/t                                                                                                      | download-unverified |
+      | aria2c https://example.com/t                                                                                                            | download-unverified |
+      | gh release download v1 -R o/r -p t                                                                                                      | download-unverified |
+      | curl -sSfL https://example.com/tool.tar.gz \| tar -xz tool                                                                              | download-piped      |
+      | curl -sSfL https://example.com/install.sh \| bash                                                                                       | download-piped      |
+      | wget -qO- https://example.com/install.sh \| sh                                                                                          | download-piped      |
+      | go run golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                                   | go-tool-unpinned    |
+      | go install github.com/example/tool@main                                                                                                 | go-tool-unpinned    |
 
-  Scenario Outline: Each downloaded file is verified on its own, before it is used
+  Scenario: A download inside a heredoc is refused too
     Given a workflow step that runs:
       """
-      <script>
-      """
-    When the CI supply-chain policy checks the workflow
-    Then the policy reports "download-unverified"
-    And the finding mentions "<file>"
-
-    Examples:
-      | script | file |
-      | curl -sSfLo a.tgz https://e.com/a.tgz; curl -sSfLo b.tgz https://e.com/b.tgz; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  a.tgz" \| sha256sum -c -; tar -xzf b.tgz | b.tgz |
-      | curl -sSfLo a.tgz https://e.com/a.tgz; tar -xzf a.tgz; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  a.tgz" \| sha256sum -c - | a.tgz |
-      | curl -sSfL https://e.com/tool > tool; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  other" \| sha256sum -c - | tool |
-      | curl -sSf https://e.com/tool; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool" \| sha256sum -c - | output file |
-
-  Scenario: A commented-out checksum is not a verification
-    Given a workflow step that runs:
-      """
+      cat <<'END'
       curl -fLo tool https://example.com/tool
-      # echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool" | sha256sum -c -
-      ./tool
-      """
-    When the CI supply-chain policy checks the workflow
-    Then the policy reports "download-unverified"
-    And the finding mentions "tool"
-
-  Scenario Outline: The hash must be piped straight into the check that uses it
-    Given a workflow step that runs:
-      """
-      <script>
-      """
-    When the CI supply-chain policy checks the workflow
-    Then the policy reports "download-unverified"
-    And the finding mentions "tool"
-
-    Examples:
-      | script |
-      | curl -fLo tool https://e.com/tool; echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' > expected.sha256; sha256sum -c other.sha256; ./tool |
-      | curl -fLo tool https://e.com/tool; echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' > sums; sha256sum -c sums; ./tool |
-      | curl -fLo tool https://e.com/tool; echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' \| sha256sum -c - \|\| true; ./tool |
-      | curl -fLo tool https://e.com/tool; false && echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' \| sha256sum -c -; ./tool |
-      | curl -fLo tool https://e.com/tool; if echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' \| sha256sum -c -; then :; fi; ./tool |
-
-  Scenario Outline: A check that might not run, or whose failure is ignored, is not a verification
-    Given a workflow step that runs:
-      """
-      curl -fLo tool https://example.com/tool
-      <before>
-      echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool" | sha256sum -c -<suffix>
-      <after>
-      ./tool
+      END
       """
     When the CI supply-chain policy checks the workflow
     Then the policy reports "download-unverified"
 
-    Examples:
-      | before                | suffix | after |
-      | if false; then        |        | fi    |
-      | while false; do       |        | done  |
-      | for x in; do          |        | done  |
-      | case x in y)          | ;;     | esac  |
-      | verify() {            |        | }     |
-      | function verify {     |        | }     |
-      | (                     |        | )     |
-      | {                     |        | }     |
-      | set +e                |        | :     |
-      | set +o errexit        |        | :     |
-      | :                     | &      | :     |
-
-  Scenario: Two downloads, each verified before use, pass
+  Scenario: A commented-out download is not a download
     Given a workflow step that runs:
       """
-      curl -sSfLo a.tgz https://example.com/a.tgz
-      wget -q https://example.com/dl/b.zip
-      printf '%s  %s\n' a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb a.tgz | sha256sum -c -
-      echo "b65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  b.zip" | sha256sum --check
-      tar -xzf a.tgz && unzip b.zip
+      # curl -fsSL https://example.com/install.sh | bash
+      echo curly
       """
     When the CI supply-chain policy checks the workflow
     Then the workflow passes the policy
+
+  Scenario Outline: A helper call must carry a committed SHA-256 literal
+    Given a workflow step that runs:
+      """
+      <script>
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "download-unverified"
+
+    Examples:
+      | script                                                                                     |
+      | scripts/fetch-verified.sh https://example.com/t "$TOOL_SHA256" t                           |
+      | scripts/fetch-verified.sh https://example.com/t a65b5253807a68ac t                         |
+      | scripts/fetch-verified.sh https://example.com/t                                            |
+      | scripts/fetch-verified.sh http://example.com/t a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb t |
+
+  Scenario Outline: The helper writes the output only when the SHA-256 matches
+    Given an HTTPS server that serves "release bytes" at "/tool"
+    When the helper fetches "/tool" with <hash> into "tool"
+    Then the helper <outcome>
+
+    Examples:
+      | hash                       | outcome                                         |
+      | the SHA-256 of the content | succeeds and "tool" holds the content           |
+      | a different SHA-256        | fails and leaves no "tool" or temporary file    |
+      | a malformed SHA-256        | fails and leaves no "tool" or temporary file    |
+
+  Scenario: The helper refuses plain HTTP
+    Given an HTTPS server that serves "release bytes" at "/tool"
+    When the helper fetches the plain-HTTP URL of "/tool" with the SHA-256 of the content into "tool"
+    Then the helper fails and leaves no "tool" or temporary file
 
   Scenario: A Go tool pinned to an exact version passes
     Given a workflow step that runs:
