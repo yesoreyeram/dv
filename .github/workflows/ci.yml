@@ -23,11 +23,11 @@ jobs:
         go: [go.mod, stable]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: matrix.go == 'go.mod'
         with:
           go-version-file: go.mod
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: matrix.go == 'stable'
         with:
           go-version: stable
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: govulncheck
@@ -97,7 +97,7 @@ jobs:
     needs: [web]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - uses: pnpm/action-setup@v4
