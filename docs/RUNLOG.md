@@ -225,6 +225,25 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Owner actions needed: review/merge #14; close #7; optionally enable "Allow auto-merge" (B-054). Then the next run opens the `feat/query-api` PR.
 - Next: open the `feat/query-api` PR after #14 merges; then B-015 Explore page on top of it, B-013 JSON, B-050, B-060.
 
+## 2026-11-08 ~14:35 UTC — triage only, PR #14 still awaiting owner review (no code change)
+- Triage: [PR #14](https://github.com/yesoreyeram/dv/pull/14) unchanged since 11:35: `clean`, all 8 checks green at f20efd1 (the actionlint 504 re-ran green), all review threads resolved, Codex reports no findings. Dependabot #6–#13 open (#7 image build red: Node 25 non-LTS; #10 govulncheck red on old `@latest` pin, fixed by #14); no open issues; `main` at 7182acb.
+- Nine PRs open, so the run rules forbid a new PR. Enabling auto-merge on #14 from this session was refused (merge needs owner review).
+- Owner actions needed: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next (after #14 merges): B-014 `POST /api/v1/query` + B-042 + B-040/B-044; then B-013 JSON; B-050; B-058.
+
+## 2026-11-08 ~15:35 UTC — triage only, PR #14 still awaiting owner review (no code change)
+- Triage: [PR #14](https://github.com/yesoreyeram/dv/pull/14) unchanged since 14:35: `clean`, all 8 checks green at 9f552f0, all review threads resolved, Codex reports no findings. Dependabot #6–#13 open; no open issues; `main` at 7182acb.
+- Nine PRs open, so the run rules forbid a new PR; #14 needs no more work. Enabling auto-merge was refused again ("Allow auto-merge" is off in repo settings).
+- Owner actions needed: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next (after #14 merges): B-014 `POST /api/v1/query` + B-042 + B-040/B-044; then B-013 JSON; B-050; B-058.
+
+## 2026-11-08 ~17:35–18:15 UTC — duplicate of the query API built and discarded; branch `feat/query-api` (3ea1a0c) is the one to open (no new PR)
+- Triage: [PR #14](https://github.com/yesoreyeram/dv/pull/14) unchanged: `clean`, all 8 checks green at d460122, all review threads resolved, Codex reports no findings. Dependabot #6–#13 open; no open issues; `main` at 7182acb. Other PRs are open, so the run rules forbid opening a new PR.
+- **Coordination miss, now fixed here.** The ~12:35 UTC run built B-014/B-040/B-042/B-044 (FR-016, FR-017, NFR-SEC-016) on branch **`feat/query-api`** (head 3ea1a0c) and logged it only in that branch's RUNLOG, so the 14:35, 15:35 and this run's triage on #14 did not see it. This run rebuilt the same increment before finding the branch at push time. The rebuild was **not pushed** (no force-push); `feat/query-api` at 3ea1a0c stays the canonical work. Rule for later runs: check `git ls-remote origin 'refs/heads/feat/*'` before starting an increment.
+- One finding from comparing the two designs, recorded as B-062 on `feat/query-api`: there each query gets the full host byte limit and up to 20 run (4 concurrently), so one request can retain up to 20 × `queryMaxBytes` of frames. The discarded rebuild shared one byte budget across a request's queries (each query receives what earlier ones left) and had a godog scenario plus a negative control for it.
+- Owner actions: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next: after #14 merges, open the `feat/query-api` PR (fold in B-062 first); then B-015 Explore page, B-013 JSON, B-050.
+
 ## 2026-11-08 ~18:35–18:50 UTC — B-062 folded into `feat/query-api` (no new PR: other PRs are open)
 - Triage: [PR #14](https://github.com/yesoreyeram/dv/pull/14) unchanged: `clean`, all 8 checks green at 70cd659, all review threads resolved, Codex reports no findings. Dependabot #6–#13 open; no open issues; `main` at 7182acb. Remote `feat/*` branches checked first (`git ls-remote`), so no duplicate work this time.
 - Market check: Grafana bounds results per data source response (`response_limit`), per SQL query (row limit) and per SQL-expression input (cell limit), but nothing bounds a whole multi-query request. This run makes the byte limit request-wide.
@@ -232,3 +251,6 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Evidence: `go test -race ./...` all ok (query 100 % coverage); godog query suite 44/44 including 2 new scenarios; negative control (per-query limits restored) fails both scenarios and two unit tests; golangci-lint 0 issues; Prettier clean. Live: with `DV_QUERY_MAX_BYTES=50000`, 1 query → 400 rows, 2 queries → 25 000 bytes each, 6 queries → ≈8 333 bytes each (`docs/screenshots/feat-query-api/03-request-byte-budget.png`).
 - Owner actions: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next: after #14 merges, open the `feat/query-api` PR (now including B-062); then B-015 Explore page, B-013 JSON, B-050.
+- 2026-11-08 ~18:50 UTC follow-up (PR #14, Codex P2 on `cipolicy.go`): `go run -tags netgo pkg@latest` passed, because the rule took the first non-flag word (`netgo`) as the package. Flags are no longer parsed; every `module/path@version` argument of a `go run`/`go install` command must be an exact semver (NFR-SEC-015 AC2). 3 scenario rows (failed before, 67/67 after), 6 unit cases.
+- 2026-11-08 ~18:55 UTC follow-up (PR #14, Codex P2 on `cipolicy.go`): a folded `run: >-` block with `go run` and `pkg@latest` on separate lines passed, because the checker joined block lines with newlines while Actions folds them into one line. `run:` values are now checked in every reading Actions may execute (literal lines; lines joined by spaces for `>`/`>-`/`>+` blocks and for multi-line plain or quoted scalars), and a finding from any reading counts (NFR-SEC-015 AC5). 5 scenario rows (failed before, 72/72 after), 7 unit cases. A YAML library was considered but cannot be fetched or hash-verified from this sandbox (gopkg.in / go.yaml.in blocked).
+

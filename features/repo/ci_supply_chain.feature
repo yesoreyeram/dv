@@ -41,6 +41,9 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
       | wget -qO- https://example.com/install.sh \| sh                                                                                          | download-piped      |
       | go run golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                                   | go-tool-unpinned    |
       | go install github.com/example/tool@main                                                                                                 | go-tool-unpinned    |
+      | go run -tags netgo golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                       | go-tool-unpinned    |
+      | go run -ldflags "-s -w" -mod mod golang.org/x/vuln/cmd/govulncheck@latest ./...                                                         | go-tool-unpinned    |
+      | go install -C /tmp github.com/example/a@v1.2.3 github.com/example/b@latest                                                              | go-tool-unpinned    |
 
   Scenario: A download inside a heredoc is refused too
     Given a workflow step that runs:
@@ -91,6 +94,38 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
     Given an HTTPS server that serves "release bytes" at "/tool"
     When the helper fetches the plain-HTTP URL of "/tool" with the SHA-256 of the content into "tool"
     Then the helper fails and leaves no "tool" or temporary file
+
+  Scenario Outline: A run value that YAML folds into one line is checked as Actions runs it
+    Given a workflow file:
+      """
+      jobs:
+        a:
+          steps:
+            - run: <indicator>
+                go run
+                golang.org/x/vuln/cmd/govulncheck@latest ./...
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "go-tool-unpinned"
+
+    Examples:
+      | indicator |
+      | >-        |
+      | >         |
+      | >+        |
+      | go run    |
+
+  Scenario: A multi-line quoted run value is checked as one line
+    Given a workflow file:
+      """
+      jobs:
+        a:
+          steps:
+            - run: "go install
+                github.com/example/tool@main"
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "go-tool-unpinned"
 
   Scenario: A Go tool pinned to an exact version passes
     Given a workflow step that runs:
