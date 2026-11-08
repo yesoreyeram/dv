@@ -11,11 +11,14 @@ import (
 )
 
 // TestRepoAutomationFeatures executes features/repo against the merge bot's decision
-// (NFR-MAINT-006 AC6).
+// (NFR-MAINT-006 AC6) and the CI supply-chain policy (NFR-SEC-015 AC5).
 func TestRepoAutomationFeatures(t *testing.T) {
 	suite := godog.TestSuite{
-		Name:                "repo",
-		ScenarioInitializer: initializeAutomergeScenario,
+		Name: "repo",
+		ScenarioInitializer: func(sc *godog.ScenarioContext) {
+			initializeAutomergeScenario(sc)
+			initializeCIPolicyScenario(sc)
+		},
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/repo"},

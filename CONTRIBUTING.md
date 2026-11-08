@@ -35,6 +35,23 @@ Docker images (grouped, weekly); Renovate updates only the toolchain pins (`mise
 directive, `packageManager` and CI golangci-lint that must match it) in one grouped PR
 (NFR-MAINT-008).
 
+### CI tools (NFR-SEC-015)
+
+Workflows may only run tools that are pinned and verified, and `make lint-workflows`
+(also a unit test in CI) enforces it:
+
+- A binary downloaded with `curl`/`wget` is saved to a file, checked with
+  `echo "<sha256>  file" | sha256sum -c -` against a hash committed in the same step, and
+  only then extracted. `curl … | tar` and `curl … | sh` are rejected. To bump such a tool,
+  change the version and take the new hash from the release's checksums file.
+- `go run`/`go install` of an external tool uses an exact `@vX.Y.Z`, never `@latest`.
+- `uses:` names a tag (`@v4`) or a 40-character commit SHA; `docker://` images need an
+  `@sha256:` digest.
+
+CI also runs [actionlint](https://github.com/rhysd/actionlint) (with shellcheck) on every
+workflow; install it locally (`mise use -g actionlint`, `brew install actionlint`) and
+`make lint-workflows` runs it too.
+
 ## Standards
 
 - Go: standard layout, `context.Context` first parameter for I/O, `log/slog` only, no

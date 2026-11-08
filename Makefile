@@ -43,8 +43,13 @@ dev: ## Run the API (go run) and the Vite dev server with HMR (proxying /api)
 	DV_API_URL=http://$(ADDR) pnpm --filter web run dev
 
 ## ---------- quality ----------
-.PHONY: lint lint-go lint-web fmt check-toolchain
-lint: lint-go lint-web check-toolchain ## Run all linters
+.PHONY: lint lint-go lint-web fmt check-toolchain lint-workflows
+lint: lint-go lint-web check-toolchain lint-workflows ## Run all linters
+
+lint-workflows: ## CI supply-chain policy (NFR-SEC-015) + actionlint when installed
+	go test -count=1 -run TestRepositoryWorkflows ./internal/cipolicy/
+	@if command -v actionlint >/dev/null 2>&1; then actionlint; \
+	else echo "actionlint not installed; CI runs it (see CONTRIBUTING.md)"; fi
 
 check-toolchain: ## mise.toml, go.mod, package.json, Dockerfile and CI agree (NFR-MAINT-007)
 	./scripts/check-toolchain.sh
