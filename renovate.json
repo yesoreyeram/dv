@@ -50,7 +50,7 @@
       "enabled": false
     },
     {
-      "description": "Node majors are deliberate LTS migrations (CI, Dockerfile): B-055; minor/patch within the pinned LTS line are proposed",
+      "description": "Node majors are deliberate migrations to the next Active LTS (CI, Dockerfile, @types/node): NFR-MAINT-007 AC4; minor/patch within the pinned LTS line are proposed",
       "matchPackageNames": ["node"],
       "matchUpdateTypes": ["major"],
       "enabled": false

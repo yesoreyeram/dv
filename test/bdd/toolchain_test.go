@@ -89,7 +89,7 @@ func initializeToolchainScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^the toolchain check passes$`, func() error {
 		if w.err != nil {
-			return fmt.Errorf("check failed (%v):\n%s", w.err, w.output)
+			return fmt.Errorf("check failed (%w):\n%s", w.err, w.output)
 		}
 		return nil
 	})

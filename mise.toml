@@ -4,7 +4,7 @@
 # declarations together in one "toolchain" PR (renovate.json).
 [tools]
 go = "1.24.7"
-node = "22.23.4"
+node = "26.13.0"
 pnpm = "10.28.0"
 golangci-lint = "2.5.0"
 
