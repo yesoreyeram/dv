@@ -153,8 +153,17 @@ func initializeToolchainScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^every "node-version" in "([^"]*)" is (\d+)$`, func(file string, major int) error {
 		return w.match(file, `(?m)^\s*node-version: (\S+)$`, fmt.Sprint(major), 1)
 	})
-	sc.Step(`^"([^"]*)" builds the web assets with "([^"]*)"$`, func(file, image string) error {
-		return w.match(file, `(?m)^FROM (node:\S+) AS web$`, image, 1)
+	sc.Step(`^"([^"]*)" builds the web assets with an LTS Node image not older than the pin$`, func(file string) error {
+		vars, err := w.pins()
+		if err != nil {
+			return err
+		}
+		img, _ := strconv.Atoi(vars["docker.node"])
+		pin, _ := strconv.Atoi(vars["node.major"])
+		if img%2 != 0 || img < pin {
+			return fmt.Errorf("%s builds with node:%s-alpine; want an even major >= %d", file, vars["docker.node"], pin)
+		}
+		return nil
 	})
 }
 
@@ -173,9 +182,6 @@ func (w *toolchainWorld) pins() (map[string]string, error) {
 			return nil, fmt.Errorf("mise.toml has no %s pin", k)
 		}
 	}
-	if i := strings.LastIndex(vars["go"], "."); i > 0 {
-		vars["go.minor"] = vars["go"][:i]
-	}
 	major, err := strconv.Atoi(strings.SplitN(vars["node"], ".", 2)[0])
 	if err != nil {
 		return nil, fmt.Errorf("node pin %q: %w", vars["node"], err)
@@ -184,6 +190,22 @@ func (w *toolchainWorld) pins() (map[string]string, error) {
 	vars["node.major+1"] = strconv.Itoa(major + 1)
 	vars["node.major+2"] = strconv.Itoa(major + 2)
 	vars["node.major-2"] = strconv.Itoa(major - 2)
+
+	// Builder images are read from the Dockerfile itself: Dependabot may move them ahead
+	// of the pins (NFR-MAINT-007 AC2).
+	df, err := os.ReadFile(filepath.Join(w.dir, "deploy", "Dockerfile"))
+	if err != nil {
+		return nil, err
+	}
+	gm := regexp.MustCompile(`(?m)^FROM golang:(\d+\.\d+)-alpine`).FindSubmatch(df)
+	nm := regexp.MustCompile(`(?m)^FROM node:(\d+)-alpine`).FindSubmatch(df)
+	if gm == nil || nm == nil {
+		return nil, fmt.Errorf("deploy/Dockerfile: cannot find the golang and node builder images")
+	}
+	vars["docker.go"] = string(gm[1])
+	vars["docker.node"] = string(nm[1])
+	dn, _ := strconv.Atoi(vars["docker.node"])
+	vars["docker.node+2"] = strconv.Itoa(dn + 2)
 	return vars, nil
 }
 
