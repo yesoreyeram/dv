@@ -1,0 +1,13 @@
+$ curl -s 127.0.0.1:18080/api/v1/plugins | jq ".formats[].id"
+"csv"
+"json"
+"ndjson"
+"tsv"
+
+$ curl -s -H 'Content-Type: application/json' 127.0.0.1:18080/api/v1/query -d '{"queries":[{"refId":"A","datasource":{"uid":"samples"},"query":{"path":"services.json","options":{"rowsPath":"data.services","flatten":true}}}]}'
+{"results":{"A":{"status":200,"frames":[{"schema":{"name":"services.json","meta":{"source":"file","executedQuery":"samples:services.json"},"fields":[{"name":"name","type":"string","config":{}},{"name":"tier","type":"number","config":{}},{"name":"healthy","type":"bool","config":{}},{"name":"lastDeploy","type":"time","config":{}},{"name":"owner.team","type":"string","config":{}},{"name":"owner.oncall","type":"string","config":{}},{"name":"regions","type":"json","config":{}},{"name":"p95Ms","type":"number","config":{}}]},"data":{"values":[["checkout","search","catalog","notifications"],[1,1,2,3],[true,true,false,true],[1794061200000,1793955900000,1794123900000,1793376600000],["payments","discovery","discovery","platform"],["rota-a","rota-b","rota-b","rota-c"],[["emea","apac"],["emea","amer"],["amer"],["emea","amer","apac"]],[182.5,96.1,411,58.7]]}}]}}}
+
+$ # NDJSON, a bad rowsPath, and a missing key in one request (207 Multi-Status)
+{"results":{"A":{"status":200,"frames":[{"schema":{"name":"events.ndjson","meta":{"source":"file","executedQuery":"samples:events.ndjson","truncated":true,"notices":[{"severity":"warning","text":"Result truncated at the row limit of 2 rows."}]},"fields":[{"name":"time","type":"time","config":{}},{"name":"level","type":"string","config":{}},{"name":"service","type":"string","config":{}},{"name":"msg","type":"string","config":{}},{"name":"durationMs","type":"number","config":{}}]},"data":{"values":[[1794132000000,1794132042000],["info","info"],["checkout","checkout"],["deploy started","deploy finished"],[0,42000]]}}]},"B":{"status":400,"error":{"code":"invalid_query","message":"services.json: invalid format options: rowsPath must be dot-separated keys of letters, digits, '_' or '-'"}},"C":{"status":422,"error":{"code":"decode_failed","message":"services.json: rowsPath \"data.items\": key \"items\" not found: decode failed"}}}}
+
+HTTP 207

@@ -243,8 +243,11 @@ NDJSON is pulled forward from FR-060 because it shares the decoder.
 - AC6: limits. Decoding streams tokens: at most `MaxRows`+1 rows are decoded and input after
   that is never parsed, so a truncated result cannot fail on later syntax errors; values
   that are skipped on the way to `rowsPath` are consumed token by token, never allocated as
-  a whole. Raw rows held for inference have the FR-011 AC8 guard of twice the byte limit;
-  the result byte limit is enforced on converted values by the frame builder. Nesting deeper
+  a whole. The byte limit is planned on converted values while rows are read: a row is
+  kept only if every kept row, under the types inferred from the kept rows, still fits, so
+  later rows can neither change types nor push the result over the limit. Held cells are
+  the decoded JSON values (number text, strings, compact nested JSON), so they stay close
+  to the converted size; the frame builder enforces the limit again. Nesting deeper
   than 64 levels fails as a decode error. Truncation sets `meta.truncated` with a notice.
   Decoding honours context cancellation.
 - AC7: syntax errors fail as a decode error with the byte offset (JSON) or row number

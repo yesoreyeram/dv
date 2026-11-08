@@ -78,6 +78,14 @@ curl -s -H 'Content-Type: application/json' 127.0.0.1:8080/api/v1/query \
   -d '{"queries":[{"refId":"A","datasource":{"uid":"samples"},"query":{"path":"sales.csv"}}]}'
 ```
 
+JSON and NDJSON files work the same way (FR-012). `query.options.rowsPath` names the array
+of rows inside a JSON document and `flatten` expands nested objects into dotted fields:
+
+```bash
+curl -s -H 'Content-Type: application/json' 127.0.0.1:8080/api/v1/query \
+  -d '{"queries":[{"refId":"A","datasource":{"uid":"samples"},"query":{"path":"services.json","options":{"rowsPath":"data.services","flatten":true}}}]}'
+```
+
 Results are keyed by `refId`: `200` when every query succeeds, `207 Multi-Status` when only
 some do, each with its own `status` and a stable `error.code` (see `api/openapi.json`).
 
