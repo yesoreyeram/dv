@@ -63,6 +63,7 @@ func (f *fake) Query(ctx context.Context, q plugin.Query) (*frame.Result, error)
 	var body struct {
 		Err   string `json:"err"`
 		Sleep int    `json:"sleep"`
+		Fill  bool   `json:"fill"` // append rows until a limit stops the builder
 	}
 	if len(q.Body) > 0 {
 		if err := json.Unmarshal(q.Body, &body); err != nil {
@@ -81,6 +82,9 @@ func (f *fake) Query(ctx context.Context, q plugin.Query) (*frame.Result, error)
 	}
 	if f.nilResult {
 		return nil, nil
+	}
+	if body.Fill {
+		return fill(q.Limits)
 	}
 	fld, err := frame.NewField("v", frame.TypeNumber)
 	if err != nil {

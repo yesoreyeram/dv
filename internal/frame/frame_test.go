@@ -436,3 +436,25 @@ func TestWireDecodeJSONCompacts(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestEstimatedBytesMatchesBuilder(t *testing.T) {
+	var nilFrame *Frame
+	if got := nilFrame.EstimatedBytes(); got != 0 {
+		t.Fatalf("nil frame = %d, want 0", got)
+	}
+	s := mustField(t, "s", TypeString)
+	n := mustField(t, "n", TypeNumber)
+	b, err := NewBuilder("", Limits{}, s, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := b.AppendRow("abc", float64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.Frame().Fields = append(b.Frame().Fields, nil) // tolerated
+	if got, want := b.Frame().EstimatedBytes(), b.Bytes(); got != want || got == 0 {
+		t.Fatalf("EstimatedBytes = %d, builder counted %d", got, want)
+	}
+}

@@ -206,6 +206,7 @@ func (s *Service) Execute(ctx context.Context, req Request) (Response, int, erro
 		tr = plugin.TimeRange{From: req.From.UTC(), To: req.To.UTC()}
 	}
 	results := make([]Result, len(req.Queries))
+	bud := newBudget(s.limits.MaxBytes, len(req.Queries))
 	sem := make(chan struct{}, MaxConcurrency)
 	var wg sync.WaitGroup
 	for i, q := range req.Queries {
@@ -215,7 +216,10 @@ func (s *Service) Execute(ctx context.Context, req Request) (Response, int, erro
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
-				results[i] = s.run(ctx, q, tr)
+				grant := bud.reserve()
+				var used int64
+				results[i], used = s.run(ctx, q, tr, grant, len(req.Queries))
+				bud.settle(grant, used)
 			case <-ctx.Done():
 				results[i] = failure(StatusClientClosedRequest, "cancelled", "the request was cancelled")
 			}
@@ -242,15 +246,24 @@ func overallStatus(results []Result) int {
 	return first
 }
 
-func (s *Service) run(ctx context.Context, q Item, tr plugin.TimeRange) Result {
+// run executes one query with grant bytes of the request budget (FR-016 AC9). It returns
+// the result and the estimated bytes its frames retain.
+func (s *Service) run(ctx context.Context, q Item, tr plugin.TimeRange, grant int64, queries int) (Result, int64) {
 	start := time.Now()
 	in, ok := s.instances[q.DataSource.UID]
 	if !ok {
 		res := failure(404, "datasource_not_found", "no data source with this uid")
 		s.logQuery(ctx, q, in, res, start, nil)
-		return res
+		return res, 0
+	}
+	if grant <= 0 {
+		res := failure(413, "budget_exhausted", fmt.Sprintf(
+			"earlier queries of this request used its whole result byte budget of %d bytes; send this query in its own request", s.limits.MaxBytes))
+		s.logQuery(ctx, q, in, res, start, nil)
+		return res, 0
 	}
 	limits := s.limits
+	limits.MaxBytes = min(grant, limits.MaxBytes)
 	if q.MaxRows > 0 && q.MaxRows < limits.MaxRows {
 		limits.MaxRows = q.MaxRows
 	}
@@ -272,8 +285,17 @@ func (s *Service) run(ctx context.Context, q Item, tr plugin.TimeRange) Result {
 	if err != nil {
 		res = mapError(ctx, qctx, err)
 	}
+	var used int64
+	for _, f := range res.Frames {
+		used += f.EstimatedBytes()
+		if f != nil && f.Meta.Truncated && limits.MaxBytes < s.limits.MaxBytes && f.Rows() < limits.MaxRows {
+			f.AddNotice(frame.SeverityWarning, fmt.Sprintf(
+				"This query received %d bytes of the request byte budget of %d bytes, which the request's %d queries share. Send it in its own request to get up to %d bytes.",
+				limits.MaxBytes, s.limits.MaxBytes, queries, s.limits.MaxBytes))
+		}
+	}
 	s.logQuery(ctx, q, in, res, start, err)
-	return res
+	return res, used
 }
 
 func (s *Service) logQuery(ctx context.Context, q Item, in Instance, res Result, start time.Time, err error) {

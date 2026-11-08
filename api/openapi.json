@@ -92,7 +92,7 @@
         "tags": ["query"],
         "operationId": "runQueries",
         "summary": "Run queries",
-        "description": "Runs 1-20 refId-tagged queries (at most 4 concurrently, each with the query timeout and host row/byte limits) and returns frames per refId. 200 when all succeed, the shared status when all fail alike, otherwise 207 Multi-Status (FR-016). Answers 404 unless queryApiEnabled is set (NFR-SEC-016).",
+        "description": "Runs 1-20 refId-tagged queries (at most 4 concurrently, each with the query timeout and the host row limit; the host byte limit is one budget shared by all queries of the request, and a query that starts after it is used up answers 413 budget_exhausted, FR-016 AC9) and returns frames per refId. 200 when all succeed, the shared status when all fail alike, otherwise 207 Multi-Status (FR-016). Answers 404 unless queryApiEnabled is set (NFR-SEC-016).",
         "requestBody": {
           "required": true,
           "content": {
@@ -282,6 +282,7 @@
                   "invalid_query",
                   "not_found",
                   "too_large",
+                  "budget_exhausted",
                   "unsupported_format",
                   "decode_failed",
                   "timeout",

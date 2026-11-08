@@ -137,3 +137,22 @@ func (f *Frame) commitRow(norm []any) {
 func (f *Frame) AddNotice(sev Severity, text string) {
 	f.Meta.Notices = append(f.Meta.Notices, Notice{Severity: sev, Text: text})
 }
+
+// EstimatedBytes returns the estimated retained size of every stored value, using the
+// same per-value estimate Builder counts against Limits.MaxBytes (NFR-PERF-003). The
+// query API uses it to charge a request's byte budget (FR-016 AC9).
+func (f *Frame) EstimatedBytes() int64 {
+	if f == nil {
+		return 0
+	}
+	var n int64
+	for _, fl := range f.Fields {
+		if fl == nil {
+			continue
+		}
+		for _, v := range fl.values {
+			n += int64(estimateSize(v))
+		}
+	}
+	return n
+}

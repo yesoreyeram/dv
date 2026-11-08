@@ -269,6 +269,49 @@ func initializeQueryScenario(sc *godog.ScenarioContext) {
 		}
 		return nil
 	})
+	sc.Step(`^a file "([^"]*)" in root "([^"]*)" with (\d+) rows$`, func(name, root string, n int) error {
+		var b strings.Builder
+		b.WriteString("id,label\n")
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&b, "%d,item-%04d\n", i, i)
+		}
+		return w.writeFile(root, name, b.String())
+	})
+	sc.Step(`^the host query byte limit is (\d+) bytes$`, func(n int) error { w.cfg.QueryMaxBytes = int64(n); return nil })
+	sc.Step(`^result "([^"]*)" frame (\d+) has a notice mentioning "([^"]*)"$`, func(ref string, i int, text string) error {
+		f, err := w.frame(ref, i)
+		if err != nil {
+			return err
+		}
+		for _, n := range f.Meta.Notices {
+			if strings.Contains(n.Text, text) {
+				return nil
+			}
+		}
+		return fmt.Errorf("no notice mentioning %q: %+v", text, f.Meta.Notices)
+	})
+	sc.Step(`^the frames of the response hold at most (\d+) bytes$`, func(limit int64) error {
+		var resp struct {
+			Results map[string]json.RawMessage `json:"results"`
+		}
+		if err := json.Unmarshal(w.resp.Body.Bytes(), &resp); err != nil {
+			return err
+		}
+		var total int64
+		for ref := range resp.Results {
+			r, err := w.result(ref)
+			if err != nil {
+				return err
+			}
+			for _, f := range r.Frames {
+				total += f.EstimatedBytes()
+			}
+		}
+		if total == 0 || total > limit {
+			return fmt.Errorf("frames hold %d bytes, want 1..%d", total, limit)
+		}
+		return nil
+	})
 	sc.Step(`^result "([^"]*)" frame (\d+) is marked truncated$`, func(ref string, i int) error {
 		f, err := w.frame(ref, i)
 		if err != nil {
