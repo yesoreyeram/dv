@@ -67,7 +67,7 @@ jobs:
     name: Workflow lint (actionlint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # NFR-SEC-015 AC1/AC4: pinned release, SHA-256 committed here, verified before
       # extraction. shellcheck is preinstalled on ubuntu-latest and actionlint uses it.
       - name: actionlint
