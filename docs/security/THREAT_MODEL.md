@@ -109,6 +109,24 @@ could not already copy in. Operators should mount roots read-only (as `docker-co
 does) and not give untrusted users write access to them. The same applies to symlinks
 inside a root that point at hidden files in that root.
 
+## F-09 Repository automation: merge bot, dependency updates (NFR-MAINT-006…008, NFR-SEC-014)
+
+Trust boundary: GitHub Actions runner with a repository token ↔ pull-request content
+written by anyone who can open a PR (including Dependabot and, for public repos, forks).
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| S | A fork or unknown author gets code merged by the bot | Merge only same-repository PRs whose author is on an explicit allow-list (`DV_AUTOMERGE_AUTHORS`); fork PRs are skipped. | `automerge` unit tests; `automerge.feature` |
+| T | Commit pushed after CI passed is merged untested (race) | Run's `head_sha` must equal the PR's current head, and the merge call sends `sha` so GitHub refuses if the head moved. | `TestDecide*`, `TestRunMergesWithPinnedSHA` |
+| T | PR modifies the merge bot itself to merge something else | Workflow is `workflow_run`-triggered, so it runs the default-branch copy; it checks out the default branch, never the PR head, and executes no PR code. | Workflow review |
+| T | A failing or pending required check is ignored | Besides the `CI` run conclusion, every check run on the head SHA must be completed with `success`/`neutral`/`skipped`, and at least one must exist. | `automerge.feature` |
+| R | Nobody can tell why a PR was or was not merged | Every decision logs PR number, head SHA and reason; GitHub records the merge actor. | `TestRun*` log assertions |
+| I | Token leaks into logs | Token read from env only, sent only in the `Authorization` header to `GITHUB_API_URL`; error messages include status + path, never headers. | `TestRunNeverLogsToken` |
+| D | API hangs block the runner | 15 s HTTP timeout and a 5 min job timeout. | Unit test with slow server |
+| E | Token can do more than merge | Job permissions `contents: write`, `pull-requests: write`, `checks: read`, nothing else; workflow default `permissions: {}`. | Workflow review |
+| T | Stacked PR merges into an already-merged parent branch and its change never reaches `main` (happened to PR #5) | Bot merges only PRs targeting the default branch; owner setting "Automatically delete head branches" makes GitHub retarget stacked PRs to `main` when the parent merges. | `automerge.feature`; this PR re-lands #5 |
+| T | Malicious dependency release auto-merged | Only after full CI (tests, govulncheck, pnpm audit, gitleaks, image build); non-LTS Node majors ignored; owner can add `hold`. Residual: a compromised release that passes CI. | Dependabot config review |
+
 ## Planned features (threats to model at implementation time)
 
 - **F-04 AuthN/RBAC (M3):** credential stuffing, session fixation, CSRF, privilege escalation, IDOR → Argon2id, rotating session IDs, SameSite=strict cookies + CSRF tokens, server-side RBAC, object-level checks.
