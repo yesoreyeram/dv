@@ -24,6 +24,12 @@ import {
   type QueryOutcome,
 } from "@/lib/api";
 import { parseRowLimit } from "@/lib/format";
+import {
+  effectiveFormat,
+  isValidRowsPath,
+  jsonControls,
+  jsonQueryOptions,
+} from "@/lib/jsonOptions";
 import { cn } from "@/lib/utils";
 
 const REF_ID = "A";
@@ -83,24 +89,36 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   const [path, setPath] = useState(params.get("path") ?? "");
   const [format, setFormat] = useState(params.get("format") ?? "");
   const [maxRows, setMaxRows] = useState(params.get("maxRows") ?? "");
-  const [errors, setErrors] = useState<{ path?: string; maxRows?: string }>({});
+  const [rowsPath, setRowsPath] = useState(params.get("rowsPath") ?? "");
+  const [flatten, setFlatten] = useState(params.get("flatten") === "1");
+  const [errors, setErrors] = useState<{ path?: string; maxRows?: string; rowsPath?: string }>({});
   const [run, setRun] = useState<RunState>({ kind: "idle" });
   const [frameIdx, setFrameIdx] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // JSON options apply to the format the query will use (FR-012 AC9).
+  const effFormat = effectiveFormat(format, path, formats);
+  const controls = jsonControls(effFormat);
+
   const execute = async () => {
     const rows = parseRowLimit(maxRows);
     const next: typeof errors = {};
     if (path.trim() === "") next.path = t("explore.pathRequired");
     if (rows === null) next.maxRows = t("explore.maxRowsInvalid");
+    if (controls.rowsPath && rowsPath.trim() !== "" && !isValidRowsPath(rowsPath.trim())) {
+      next.rowsPath = t("explore.rowsPathInvalid");
+    }
     setErrors(next);
-    if (next.path || next.maxRows) return;
+    if (next.path || next.maxRows || next.rowsPath) return;
 
+    const options = jsonQueryOptions(effFormat, { rowsPath, flatten });
     const search: Record<string, string> = { ds, path: path.trim() };
     if (format) search.format = format;
     if (rows !== undefined) search.maxRows = String(rows);
+    if (typeof options?.rowsPath === "string") search.rowsPath = options.rowsPath;
+    if (options?.flatten === true) search.flatten = "1";
     setParams(search, { replace: true });
 
     abortRef.current?.abort();
@@ -114,7 +132,11 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
         {
           refId: REF_ID,
           datasource: ds,
-          query: { path: path.trim(), ...(format ? { format } : {}) },
+          query: {
+            path: path.trim(),
+            ...(format ? { format } : {}),
+            ...(options ? { options } : {}),
+          },
           ...(rows === undefined || rows === null ? {} : { maxRows: rows }),
         },
         ctrl.signal,
@@ -151,6 +173,8 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   const describedBy = (id: string, err?: string) => (err ? `${id}-error` : `${id}-hint`);
   const pathId = `${ids}-path`;
   const rowsId = `${ids}-rows`;
+  const rowsPathId = `${ids}-rowspath`;
+  const flattenId = `${ids}-flatten`;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(18rem,22rem)_1fr]">
@@ -231,6 +255,51 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
                 ))}
               </select>
             </Field>
+            {controls.rowsPath ? (
+              <Field
+                id={rowsPathId}
+                label={t("explore.rowsPath")}
+                hint={t("explore.rowsPathHint")}
+                error={errors.rowsPath ?? null}
+              >
+                <input
+                  id={rowsPathId}
+                  className={cn(inputClass, "font-mono")}
+                  onKeyDown={onKeyDown}
+                  value={rowsPath}
+                  onChange={(e) => {
+                    setRowsPath(e.target.value);
+                  }}
+                  aria-invalid={errors.rowsPath ? true : undefined}
+                  aria-describedby={describedBy(rowsPathId, errors.rowsPath)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={2063}
+                />
+              </Field>
+            ) : null}
+            {controls.flatten ? (
+              <div className="flex items-start gap-2">
+                <input
+                  id={flattenId}
+                  type="checkbox"
+                  className="mt-0.5 size-4 accent-primary"
+                  checked={flatten}
+                  onChange={(e) => {
+                    setFlatten(e.target.checked);
+                  }}
+                  aria-describedby={`${flattenId}-hint`}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <label htmlFor={flattenId} className="text-sm font-medium">
+                    {t("explore.flatten")}
+                  </label>
+                  <p id={`${flattenId}-hint`} className="text-xs text-muted-foreground">
+                    {t("explore.flattenHint")}
+                  </p>
+                </div>
+              </div>
+            ) : null}
             <Field
               id={rowsId}
               label={t("explore.maxRows")}

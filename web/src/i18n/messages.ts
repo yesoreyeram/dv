@@ -49,6 +49,12 @@ export const en = {
   "explore.pathRequired": "Enter a file path.",
   "explore.format": "Format",
   "explore.formatAuto": "Automatic (from the file extension)",
+  "explore.rowsPath": "Rows path",
+  "explore.rowsPathHint":
+    "Optional. Dot-separated keys of the array that holds the rows, for example data.items.",
+  "explore.rowsPathInvalid": "Use dot-separated keys of letters, digits, _ or - (at most 16).",
+  "explore.flatten": "Flatten nested objects",
+  "explore.flattenHint": "Turns nested objects into fields such as owner.team.",
   "explore.maxRows": "Row limit",
   "explore.maxRowsHint": "Optional. The server limit applies when empty.",
   "explore.maxRowsInvalid": "Enter a whole number from 1 to 100000.",
@@ -85,7 +91,7 @@ export const en = {
   "dataSources.formats": "File formats",
   "dataSources.formatsDescription": "How byte-oriented sources decode their content.",
   "dataSources.noSources":
-    "No data-source plugins are compiled into this server yet. CSV/TSV and JSON file sources are next on the roadmap.",
+    "No data-source plugins are compiled into this server yet. CSV, TSV, JSON and NDJSON file sources are on the roadmap.",
   "dataSources.noFormats": "No format plugins are compiled into this server yet.",
   "dataSources.loading": "Loading plugin catalogue…",
   "dataSources.error": "Could not load the plugin catalogue.",

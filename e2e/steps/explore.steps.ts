@@ -73,3 +73,22 @@ Then("I see an error alert mentioning {string}", async ({ page }, text: string) 
 Then("the path field is marked invalid", async ({ page }) => {
   await expect(pathField(page)).toHaveAttribute("aria-invalid", "true");
 });
+
+const rowsPathField = (page: Page) => page.getByRole("textbox", { name: "Rows path" });
+
+When("I enter the rows path {string}", async ({ page }, value: string) => {
+  await rowsPathField(page).fill(value);
+});
+
+When("I check {string}", async ({ page }, name: string) => {
+  await page.getByRole("checkbox", { name }).check();
+});
+
+Then("there is no rows path field", async ({ page }) => {
+  await expect(page.getByRole("checkbox", { name: "Flatten nested objects" })).toBeVisible();
+  await expect(rowsPathField(page)).toHaveCount(0);
+});
+
+Then("the rows path field is marked invalid", async ({ page }) => {
+  await expect(rowsPathField(page)).toHaveAttribute("aria-invalid", "true");
+});
