@@ -95,6 +95,38 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
     When the helper fetches the plain-HTTP URL of "/tool" with the SHA-256 of the content into "tool"
     Then the helper fails and leaves no "tool" or temporary file
 
+  Scenario Outline: A run value that YAML folds into one line is checked as Actions runs it
+    Given a workflow file:
+      """
+      jobs:
+        a:
+          steps:
+            - run: <indicator>
+                go run
+                golang.org/x/vuln/cmd/govulncheck@latest ./...
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "go-tool-unpinned"
+
+    Examples:
+      | indicator |
+      | >-        |
+      | >         |
+      | >+        |
+      | go run    |
+
+  Scenario: A multi-line quoted run value is checked as one line
+    Given a workflow file:
+      """
+      jobs:
+        a:
+          steps:
+            - run: "go install
+                github.com/example/tool@main"
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "go-tool-unpinned"
+
   Scenario: A Go tool pinned to an exact version passes
     Given a workflow step that runs:
       """
