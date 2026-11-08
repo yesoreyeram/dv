@@ -17,6 +17,12 @@ Feature: Data source catalogue in the UI
     And the catalogue lists the file format "CSV"
     And the catalogue lists the file format "TSV"
 
+  @FR-012
+  Scenario: JSON and NDJSON formats are listed
+    Given I open the app at "/data-sources"
+    Then the catalogue lists the file format "JSON"
+    And the catalogue lists the file format "NDJSON"
+
   @NFR-AUD-004
   Scenario: Data sources page does not claim protections that have not shipped
     Given I open the app at "/data-sources"
