@@ -238,3 +238,4 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Triage: PR #14 unchanged (`clean`, 8/8 checks green at 70cd659, all threads resolved, Codex no findings); Dependabot #6–#13 open; no open issues; `main` at 7182acb.
 - Shipped on branch `feat/query-api` (4b7a011, not a PR yet): B-062, `queryMaxBytes` is one byte budget per request (FR-016 AC9, NFR-PERF-003 AC2). Full details in that branch's RUNLOG.
 - Next: after #14 merges, open the `feat/query-api` PR; then B-015 Explore page, B-013 JSON, B-050.
+- 2026-11-08 ~18:50 UTC follow-up (PR #14, Codex P2 on `cipolicy.go`): `go run -tags netgo pkg@latest` passed, because the rule took the first non-flag word (`netgo`) as the package. Flags are no longer parsed; every `module/path@version` argument of a `go run`/`go install` command must be an exact semver (NFR-SEC-015 AC2). 3 scenario rows (failed before, 67/67 after), 6 unit cases.

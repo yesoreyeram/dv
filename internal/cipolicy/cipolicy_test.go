@@ -59,6 +59,13 @@ func TestCheckScript(t *testing.T) {
 		{"go install branch", "go install github.com/x/y@main", []string{RuleGoToolUnpinned}},
 		{"go install minor only", "go install github.com/x/y@v1.2", []string{RuleGoToolUnpinned}},
 		{"go install flags", "go install -v -trimpath github.com/x/y@latest", []string{RuleGoToolUnpinned}},
+		// Flags with separate values must not hide the package (Codex review on PR #14).
+		{"go run -tags value", "go run -tags netgo golang.org/x/vuln/cmd/govulncheck@latest ./...", []string{RuleGoToolUnpinned}},
+		{"go run quoted ldflags", "go run -ldflags \"-s -w\" -mod mod golang.org/x/vuln/cmd/govulncheck@latest ./...", []string{RuleGoToolUnpinned}},
+		{"go install -C and two packages", "go install -C /tmp github.com/x/a@v1.2.3 github.com/x/b@latest", []string{RuleGoToolUnpinned}},
+		{"go install empty version", "go install github.com/x/a@", []string{RuleGoToolUnpinned}},
+		{"go run -tags pinned", "go run -tags netgo golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...", nil},
+		{"go run ldflags with @", "go run -ldflags=-X=main.by=ci@example.com ./cmd/dv", nil},
 		{"go run pinned", "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...", nil},
 		{"go run prerelease", "go run example.com/t@v0.0.0-20240101000000-abcdefabcdef", nil},
 		{"go run local", "go run ./cmd/dv-automerge", nil},

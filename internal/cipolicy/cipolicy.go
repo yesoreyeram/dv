@@ -52,7 +52,10 @@ var (
 	httpsArg   = regexp.MustCompile(`^https://\S+$`)
 	sha256Arg  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\s+((?:-\S+\s+)*)(\S+)`)
+	// A `go run`/`go install` command and all its arguments (up to the end of the command).
+	// Flags are not parsed: every module/path@version argument is checked instead, so a
+	// value-taking flag (-tags netgo, -C dir) cannot hide the package (NFR-SEC-015 AC2).
+	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\b([^;&|\n]*)`)
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
 	actionTag = regexp.MustCompile(`^v\d+(?:\.\d+){0,2}$`)
@@ -138,16 +141,18 @@ func CheckScript(name string, line int, script string) []Finding {
 		}
 	}
 	for _, m := range goTool.FindAllStringSubmatch(joined, -1) {
-		target := unquote(m[2])
-		if strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
-			continue // local package or a path inside the checkout
-		}
-		at := strings.LastIndex(target, "@")
-		if at < 0 {
-			continue // resolved through this module's go.mod/go.sum
-		}
-		if v := target[at+1:]; !exactSemv.MatchString(v) {
-			add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
+		for _, tok := range strings.Fields(m[1]) {
+			target := unquote(strings.Trim(tok, `"'`))
+			if strings.HasPrefix(target, "-") || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
+				continue // a flag, a local package or a path inside the checkout
+			}
+			at := strings.LastIndex(target, "@")
+			if at < 0 || !strings.Contains(target[:at], "/") {
+				continue // no version: resolved through this module's go.mod/go.sum
+			}
+			if v := target[at+1:]; !exactSemv.MatchString(v) {
+				add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
+			}
 		}
 	}
 	return out
