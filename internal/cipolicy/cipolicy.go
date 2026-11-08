@@ -104,8 +104,10 @@ func CheckWorkflow(name string, src []byte) []Finding {
 
 // CheckScript checks the shell script of a single `run:` step that starts at line.
 func CheckScript(name string, line int, script string) []Finding {
-	// Join shell line continuations so a command split over lines is seen whole.
-	joined := strings.ReplaceAll(script, "\\\n", " ")
+	// Drop shell comments first: a commented-out command never downloads, binds a hash
+	// or verifies anything. Then join line continuations so a command split over lines
+	// is seen whole.
+	joined := strings.ReplaceAll(stripShellComments(script), "\\\n", " ")
 	var out []Finding
 	add := func(rule, msg string) {
 		out = append(out, Finding{File: name, Line: line, Rule: rule, Message: msg})
@@ -297,6 +299,35 @@ func CheckDir(dir string) ([]Finding, int, error) {
 		out = append(out, CheckWorkflow(n, b)...)
 	}
 	return out, len(names), nil
+}
+
+// stripShellComments removes `#` comments from each line of a shell script. A `#`
+// starts a comment only at the start of a word (line start or after whitespace) and
+// outside single or double quotes, as in POSIX sh; `$#`, `${#v}` and URL fragments stay.
+func stripShellComments(script string) string {
+	lines := strings.Split(script, "\n")
+	for i, l := range lines {
+		var quote byte
+		for j := 0; j < len(l); j++ {
+			c := l[j]
+			switch {
+			case quote != 0:
+				if c == '\\' && quote == '"' && j+1 < len(l) {
+					j++
+				} else if c == quote {
+					quote = 0
+				}
+			case c == '\\':
+				j++
+			case c == '\'' || c == '"':
+				quote = c
+			case c == '#' && (j == 0 || l[j-1] == ' ' || l[j-1] == '\t'):
+				lines[i] = strings.TrimRight(l[:j], " \t")
+				j = len(l)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func leading(s string) int { return len(s) - len(strings.TrimLeft(s, " \t")) }

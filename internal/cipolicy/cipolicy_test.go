@@ -50,6 +50,12 @@ func TestCheckScript(t *testing.T) {
 		{"wget -O- redirected", "wget -qO- https://x/z > t.tgz\necho '" + goodHash + "  t.tgz' | sha256sum -c -", nil},
 		{"wget --output-document=", "wget -q --output-document=t.tgz https://x/z\necho '" + goodHash + "  t.tgz' | sha256sum -c -", nil},
 		{"wget attached -O", "wget -qOt.tgz https://x/z\necho '" + goodHash + "  t.tgz' | sha256sum -c -", nil},
+		// Shell comments never verify (Codex review on PR #14).
+		{"commented-out check", "curl -fLo tool https://x/tool\n# echo '" + goodHash + "  tool' | sha256sum -c -\n./tool", []string{RuleDownloadUnverified}},
+		{"trailing comment check", "curl -fLo tool https://x/tool # echo '" + goodHash + "  tool' | sha256sum -c -\n./tool", []string{RuleDownloadUnverified}},
+		{"commented-out download", "# curl -fsSL https://x/i.sh | bash", nil},
+		{"hash inside quotes is not a comment", "curl -fLo t https://x/t#frag\necho \"" + goodHash + "  t\" | sha256sum -c - # verified\n./t", nil},
+		{"dollar hash kept", "curl -fLo t https://x/t\necho \"$#\" '#x' \"a\\\"#b\" && echo '" + goodHash + "  t' | sha256sum -c -", nil},
 		{"dangling -o", "curl -fsSL https://x/z -o", []string{RuleDownloadUnverified}},
 		{"word curl in text", "echo curly && ./curlish", nil},
 		{"go run latest", "go run golang.org/x/vuln/cmd/govulncheck@latest ./...", []string{RuleGoToolUnpinned}},
