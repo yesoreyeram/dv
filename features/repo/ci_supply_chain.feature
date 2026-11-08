@@ -47,6 +47,17 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
       | curl -sSfL https://e.com/tool > tool; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  other" \| sha256sum -c - | tool |
       | curl -sSf https://e.com/tool; echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool" \| sha256sum -c - | output file |
 
+  Scenario: A commented-out checksum is not a verification
+    Given a workflow step that runs:
+      """
+      curl -fLo tool https://example.com/tool
+      # echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool" | sha256sum -c -
+      ./tool
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "download-unverified"
+    And the finding mentions "tool"
+
   Scenario: Two downloads, each verified before use, pass
     Given a workflow step that runs:
       """
