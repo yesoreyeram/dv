@@ -19,6 +19,9 @@ func (s *Server) dataSources(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
+	if !s.guardHost(w, r) {
+		return
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string][]query.Summary{"datasources": s.query.DataSources()})
 }
 
@@ -26,6 +29,10 @@ func (s *Server) dataSources(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 	if s.query == nil {
 		s.notFound(w, r)
+		return
+	}
+	// Before the body is read or any query runs (NFR-SEC-017 AC3).
+	if !s.guardHost(w, r) || !s.guardCrossSite(w, r) {
 		return
 	}
 	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))

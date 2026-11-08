@@ -48,6 +48,7 @@ type queryWorld struct {
 	srv       *server.Server
 	close     func()
 	resp      *httptest.ResponseRecorder
+	headers   map[string]string // extra request headers; "Host" overrides the loopback default
 
 	env     map[string]string
 	files   map[string]string
@@ -90,8 +91,18 @@ func (w *queryWorld) do(method, path, ctype, body string) error {
 		return err
 	}
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	// httptest defaults Host to example.com; a browser on a loopback bind sends the bind
+	// address (NFR-SEC-017).
+	req.Host = "127.0.0.1:8080"
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
+	}
+	for k, v := range w.headers {
+		if k == "Host" {
+			req.Host = v
+			continue
+		}
+		req.Header.Set(k, v)
 	}
 	w.resp = httptest.NewRecorder()
 	s.Handler().ServeHTTP(w.resp, req)
@@ -192,6 +203,17 @@ func initializeQueryScenario(sc *godog.ScenarioContext) {
 		return nil
 	})
 	sc.Step(`^the query API is enabled$`, func() error { w.cfg.QueryAPIEnabled = true; return nil })
+	sc.Step(`^the query API is enabled with the remote opt-in$`, func() error {
+		w.cfg.QueryAPIEnabled, w.cfg.QueryAPIAllowRemote = true, true
+		return nil
+	})
+	sc.Step(`^the request header "([^"]*)" is "([^"]*)"$`, func(k, v string) error {
+		if w.headers == nil {
+			w.headers = map[string]string{}
+		}
+		w.headers[k] = v
+		return nil
+	})
 	sc.Step(`^the file "([^"]*)" in root "([^"]*)" contains "([^"]*)"$`, w.writeFileStep)
 	sc.Step(`^the file size limit is (\d+) bytes$`, func(n int) error { w.cfg.FileMaxBytes = int64(n); return nil })
 	sc.Step(`^the host query row limit is (\d+)$`, func(n int) error { w.cfg.QueryMaxRows = n; return nil })

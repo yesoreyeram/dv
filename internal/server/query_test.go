@@ -43,6 +43,7 @@ func newQueryServer(t *testing.T, enabled bool) *Server {
 func post(t *testing.T, s *Server, ctype, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/query", strings.NewReader(body))
+	req.Host = "127.0.0.1:8080" // httptest defaults to example.com (NFR-SEC-017)
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
 	}
@@ -60,6 +61,28 @@ func errCode(t *testing.T, rr *httptest.ResponseRecorder) string {
 		t.Fatalf("%v: %s", err, rr.Body)
 	}
 	return e.Error.Code
+}
+
+// doHost sends a request with the given Host and extra headers.
+func doHost(t *testing.T, h http.Handler, method, target, host string, hdr map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body *strings.Reader
+	if method == http.MethodPost {
+		body = strings.NewReader(okBody)
+	} else {
+		body = strings.NewReader("")
+	}
+	req := httptest.NewRequest(method, target, body)
+	req.Host = host
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
 }
 
 const okBody = `{"queries":[{"refId":"A","datasource":{"uid":"s1"},"query":{}}]}`
@@ -97,7 +120,7 @@ func TestQueryEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil || resp.Results["A"].Status != 200 {
 		t.Fatalf("%v %s", err, rr.Body)
 	}
-	rr = do(t, s.Handler(), http.MethodGet, "/api/v1/datasources")
+	rr = doHost(t, s.Handler(), http.MethodGet, "/api/v1/datasources", "localhost:8080", nil)
 	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `{"datasources":[{"uid":"s1","type":"stub","name":"Stub"}]}`) {
 		t.Fatalf("%d %s", rr.Code, rr.Body)
 	}

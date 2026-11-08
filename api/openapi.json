@@ -82,6 +82,7 @@
               }
             }
           },
+          "403": { "description": "host_not_allowed: the Host is not a loopback name while the API is loopback-only (NFR-SEC-017)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "404": { "description": "Query API disabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
@@ -113,6 +114,10 @@
             "content": {
               "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/Error" }, { "$ref": "#/components/schemas/QueryResponse" }] } }
             }
+          },
+          "403": {
+            "description": "host_not_allowed (non-loopback Host while loopback-only) or cross_site_request (cross-site Sec-Fetch-Site or a foreign Origin), NFR-SEC-017",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "404": {
             "description": "Query API disabled (error envelope), or every query failed with 404 (QueryResponse)",
