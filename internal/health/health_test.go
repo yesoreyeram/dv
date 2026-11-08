@@ -147,13 +147,22 @@ func TestResultIsCachedForTTL(t *testing.T) {
 	}
 	clk.advance(DefaultCacheTTL)
 	r.Check(context.Background()) // stale result; refresh runs in the background
-	eventually(t, func() bool { return calls.Load() == 2 })
+	// Wait for the refresh to finish and store its result, not just to start: advancing
+	// the clock while it is still running would stamp the result with the later time.
+	eventually(t, func() bool { return calls.Load() == 2 && r.idle() })
 	// Past TTL + timeout nothing stale is served: the caller waits and the check runs.
 	clk.advance(DefaultCacheTTL + time.Second)
 	r.Check(context.Background())
 	if got := calls.Load(); got != 3 {
 		t.Fatalf("calls after stale bound = %d, want 3", got)
 	}
+}
+
+// idle reports whether no evaluation is in flight (test-only view of the registry).
+func (r *Registry) idle() bool {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	return r.inflight == nil
 }
 
 // eventually polls cond for up to two seconds.
