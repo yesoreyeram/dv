@@ -233,3 +233,8 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - One finding from comparing the two designs, recorded as B-062 on `feat/query-api`: there each query gets the full host byte limit and up to 20 run (4 concurrently), so one request can retain up to 20 × `queryMaxBytes` of frames. The discarded rebuild shared one byte budget across a request's queries (each query receives what earlier ones left) and had a godog scenario plus a negative control for it.
 - Owner actions: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next: after #14 merges, open the `feat/query-api` PR (fold in B-062 first); then B-015 Explore page, B-013 JSON, B-050.
+
+## 2026-11-08 ~18:35–18:50 UTC — B-062 folded into `feat/query-api` (no new PR: other PRs are open)
+- Triage: PR #14 unchanged (`clean`, 8/8 checks green at 70cd659, all threads resolved, Codex no findings); Dependabot #6–#13 open; no open issues; `main` at 7182acb.
+- Shipped on branch `feat/query-api` (4b7a011, not a PR yet): B-062, `queryMaxBytes` is one byte budget per request (FR-016 AC9, NFR-PERF-003 AC2). Full details in that branch's RUNLOG.
+- Next: after #14 merges, open the `feat/query-api` PR; then B-015 Explore page, B-013 JSON, B-050.
