@@ -33,6 +33,9 @@ const cancelCheckEvery = 1024
 // ErrDecode is wrapped by every error caused by the input data (as opposed to options).
 var ErrDecode = errors.New("decode failed")
 
+// ErrOptions is wrapped by every error caused by invalid format options.
+var ErrOptions = errors.New("invalid format options")
+
 // Options are the format-specific settings in DecodeOptions.Options.
 type Options struct {
 	// Delimiter is a single character; it defaults to ',' (csv) or '\t' (tsv).
@@ -127,7 +130,7 @@ func singleRune(name, v string) (rune, error) {
 func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOptions) ([]*frame.Frame, error) {
 	s, err := f.settings(opts.Options)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrOptions, err)
 	}
 	for name, t := range opts.FieldTypes {
 		if !t.Valid() {

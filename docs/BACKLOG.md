@@ -14,7 +14,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-011 | Plugin registry + `Source`/`Format` interfaces (ADR-0002) with readiness check, `GET /api/v1/plugins`, Data sources catalogue page | M2 | FR-015, NFR-SEC-002 | Done (merged in #2–#4) |
 | B-012 | CSV/TSV format + file source rooted with `os.Root` (+ default query limits, capReader contract fix, inference from retained rows only) | M2 | FR-011, NFR-SEC-006 | Done (merged in #2–#4) |
 | B-013 | JSON format | M2 | FR-012 | Todo |
-| B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON) | M2 | FR-010, NFR-SEC-009 | Todo |
+| B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON, per-refId results, 207 on partial failure, ≤ 20 queries / 4 concurrent, per-query timeout, off by default + loopback-only gate) | M2 | FR-016, FR-010, NFR-SEC-009, NFR-SEC-016 | Ready on branch `feat/query-api` (PR waits for #14) |
 | B-015 | Explore page: source picker, query, table panel | M2 | FR-013, NFR-A11Y-004 | Todo |
 | B-016 | Line-chart panel with table alternative | M2 | FR-014, NFR-A11Y-004 | Todo |
 | B-017 | i18n message catalog + `Intl` formatting helpers | M2 | NFR-I18N-001/002 | Todo |
@@ -33,11 +33,11 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-036 | E2E scenario asserting zero CSP violations in the browser (events + console), with injected-script negative control | M1 | NFR-SEC-007 | Done (merged in #2–#4) |
 | B-037 | Host-provided `os.Root` handed to plugins (ADR-0002) — `internal/fsroot` | M2 | NFR-SEC-006 | Done (merged in #2–#4) |
 | B-039 | Policy HTTP client handed to plugins (ADR-0002) — lands with the REST source | M5 | NFR-SEC-005 | Todo |
-| B-040 | Map file-source error kinds to HTTP statuses (400/404/413/415) in `POST /api/v1/query` | M2 | FR-011 AC9, FR-010 | Todo (with B-014) |
+| B-040 | Map file-source error kinds to HTTP statuses (400/404/413/415/422) in `POST /api/v1/query` | M2 | FR-016 AC4, FR-011 AC9 | Ready on branch `feat/query-api` (PR waits for #14) |
 | B-041 | File listing capability for the file source (browse a root in the query editor) with the same path controls | M2 | FR-011, NFR-SEC-006 | Todo |
-| B-042 | Provisioned data-source instances from config until M3 storage exists, so the query API can be used | M2 | FR-011, FR-015 | Todo |
+| B-042 | Provisioned data-source instances from config (+ `GET /api/v1/datasources`) until M3 storage exists | M2 | FR-017 | Ready on branch `feat/query-api` (PR waits for #14) |
 | B-043 | `/readyz`: concurrent probes share one evaluation (singleflight), result reused for `DV_READINESS_CACHE_TTL` (1 s), a check stuck from an earlier probe is never restarted | M1 | FR-002 AC5/AC6, NFR-AVAIL-001, NFR-SEC-006 | Done (merged in #2–#4) |
-| B-044 | Host-level query limits in config (`queryMaxRows`/`queryMaxBytes`) wired into `builtin.Options.QueryDefaults` and `POST /api/v1/query` | M2 | NFR-PERF-003 | Todo (with B-014) |
+| B-044 | Host-level query limits in config (`queryMaxRows`/`queryMaxBytes`) wired into `builtin.Options.QueryDefaults` and `POST /api/v1/query` | M2 | NFR-PERF-003 AC1 | Ready on branch `feat/query-api` (PR waits for #14) |
 | B-045 | Cluster-aware rate limiting and trusted-proxy keying (limiter is per instance; see B-021) | M3 | NFR-SEC-008 | Todo |
 | B-046 | Benchmark `/readyz` under a probe flood with a slow check, to back NFR-PERF-001 with numbers (pairs with B-031) | M1 | NFR-PERF-001, FR-002 | Done (merged in #2–#4) |
 | B-038 | Plugin config schema in `SourceMeta` so the UI can generate editors (ADR-0002) | M2 | FR-015 | Todo |
@@ -54,3 +54,5 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-057 | CI supply-chain policy: `internal/cipolicy` test over `.github/workflows` (downloads verified by committed SHA-256, no `curl\|tar`/`curl\|sh`, exact `go run` versions, `uses:` tag/SHA), gitleaks download verified, govulncheck pinned to v1.9.0, pinned+verified actionlint job | M0 | NFR-SEC-015 | In review (PR #14) |
 | B-058 | Pin third-party actions to commit SHAs (with the tag as a comment) so Dependabot proposes digest updates; residual risk of mutable major tags in F-09 | M0 | NFR-SEC-015 AC3 | Todo |
 | B-059 | Keep CI tool hashes current: Renovate regex manager (or a scheduled check) for the gitleaks/actionlint version + SHA-256 pairs in `ci.yml` | M0 | NFR-SEC-015, NFR-MAINT-008 | Todo |
+| B-060 | Move stable error kinds (invalid input, not found, too large, unsupported, decode) into `internal/plugin` so `internal/query` maps errors without importing concrete plugins | M2 | FR-016 AC4, ADR-0002 | Todo |
+| B-061 | One `go test -race ./...` run in the 12:45 UTC sandbox reported `test/bdd` FAIL under full-parallel load; 5 reruns (package alone and full) passed. Identify the timing-sensitive scenario (likely the 500 rps probe load) and make it robust | M1 | NFR-PERF-001 | Todo |

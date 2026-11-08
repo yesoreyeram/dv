@@ -82,7 +82,38 @@ type Config struct {
 	FileRoots map[string]string `json:"fileRoots"`
 	// FileMaxBytes caps the size of a file read by the file source (FR-011 AC4).
 	FileMaxBytes int64 `json:"fileMaxBytes"`
+
+	// QueryAPIEnabled turns on POST /api/v1/query and GET /api/v1/datasources. It is
+	// off by default until authentication ships (FR-016 AC7, NFR-SEC-016).
+	QueryAPIEnabled bool `json:"queryApiEnabled"`
+	// QueryAPIAllowRemote permits the query API on a non-loopback address before
+	// authentication exists. It is an explicit, logged opt-in (NFR-SEC-016 AC2/AC3).
+	QueryAPIAllowRemote bool `json:"queryApiAllowRemote"`
+	// QueryTimeout is the deadline of each query (FR-016 AC5).
+	QueryTimeout Duration `json:"queryTimeout"`
+	// QueryMaxRows and QueryMaxBytes are the host result limits (FR-016 AC6,
+	// NFR-PERF-003 AC1).
+	QueryMaxRows  int   `json:"queryMaxRows"`
+	QueryMaxBytes int64 `json:"queryMaxBytes"`
+	// DataSources are the provisioned data-source instances (FR-017).
+	DataSources []DataSource `json:"datasources"`
 }
+
+// DataSource is one provisioned data-source instance (FR-017 AC1). There is no secrets
+// field: secureJsonData is refused as an unknown key until FR-022 ships.
+type DataSource struct {
+	UID      string          `json:"uid"`
+	Type     string          `json:"type"`
+	Name     string          `json:"name"`
+	JSONData json.RawMessage `json:"jsonData,omitempty"`
+}
+
+// Query limit bounds accepted by Validate.
+const (
+	MaxQueryRows    = 10_000_000
+	MaxQueryBytes   = 1 << 30
+	MaxQueryTimeout = 10 * time.Minute
+)
 
 // Default returns the secure-by-default configuration.
 func Default() Config {
@@ -102,6 +133,9 @@ func Default() Config {
 		MaxHeaderBytes:        64 << 10,
 		MaxBodyBytes:          1 << 20,
 		FileMaxBytes:          64 << 20,
+		QueryTimeout:          Duration(30 * time.Second),
+		QueryMaxRows:          100_000,
+		QueryMaxBytes:         32 << 20,
 	}
 }
 
@@ -209,6 +243,28 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 			cfg.FileMaxBytes = n
 		}
 	}
+	boolean := func(key string, dst *bool) {
+		if v, ok := lookup(getenv, key); ok {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", key, err))
+				return
+			}
+			*dst = b
+		}
+	}
+	boolean("DV_QUERY_API_ENABLED", &cfg.QueryAPIEnabled)
+	boolean("DV_QUERY_API_ALLOW_REMOTE", &cfg.QueryAPIAllowRemote)
+	dur("DV_QUERY_TIMEOUT", &cfg.QueryTimeout)
+	integer("DV_QUERY_MAX_ROWS", &cfg.QueryMaxRows)
+	if v, ok := lookup(getenv, "DV_QUERY_MAX_BYTES"); ok {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("DV_QUERY_MAX_BYTES: %w", err))
+		} else {
+			cfg.QueryMaxBytes = n
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -297,6 +353,7 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("fileMaxBytes must be between 1KiB and 1GiB"))
 	}
 	errs = append(errs, validateRoots(c.FileRoots)...)
+	errs = append(errs, c.validateQuery()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
@@ -332,6 +389,61 @@ func validateRoots(roots map[string]string) []error {
 		}
 	}
 	return errs
+}
+
+var (
+	dataSourceUID  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,40}$`)
+	dataSourceType = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`) // plugin ID pattern (FR-015 AC2)
+)
+
+// validateQuery checks the query API gate, host limits and provisioned data sources
+// (FR-016 AC5–AC7, FR-017 AC1, NFR-SEC-016).
+func (c Config) validateQuery() []error {
+	var errs []error
+	if c.QueryTimeout <= 0 || c.QueryTimeout.Std() > MaxQueryTimeout {
+		errs = append(errs, fmt.Errorf("queryTimeout must be > 0 and at most %s", MaxQueryTimeout))
+	}
+	if c.QueryMaxRows < 1 || c.QueryMaxRows > MaxQueryRows {
+		errs = append(errs, fmt.Errorf("queryMaxRows must be between 1 and %d", MaxQueryRows))
+	}
+	if c.QueryMaxBytes < 1<<10 || c.QueryMaxBytes > MaxQueryBytes {
+		errs = append(errs, errors.New("queryMaxBytes must be between 1KiB and 1GiB"))
+	}
+	if c.QueryAPIEnabled && !c.QueryAPIAllowRemote && !IsLoopbackAddr(c.HTTPAddr) {
+		errs = append(errs, fmt.Errorf("queryApiEnabled needs a loopback httpAddr (got %q) until authentication ships; "+
+			"set queryApiAllowRemote=true (DV_QUERY_API_ALLOW_REMOTE) to expose it anyway", c.HTTPAddr))
+	}
+	seen := map[string]bool{}
+	for i, ds := range c.DataSources {
+		at := fmt.Sprintf("datasources[%d]", i)
+		if !dataSourceUID.MatchString(ds.UID) {
+			errs = append(errs, fmt.Errorf("%s: uid %q must match %s", at, ds.UID, dataSourceUID))
+		} else if seen[ds.UID] {
+			errs = append(errs, fmt.Errorf("%s: duplicate uid %q", at, ds.UID))
+		}
+		seen[ds.UID] = true
+		if !dataSourceType.MatchString(ds.Type) {
+			errs = append(errs, fmt.Errorf("%s: type %q must be a plugin ID", at, ds.Type))
+		}
+		if n := len([]rune(ds.Name)); n < 1 || n > 100 || strings.TrimSpace(ds.Name) == "" {
+			errs = append(errs, fmt.Errorf("%s: name must be 1-100 characters", at))
+		}
+	}
+	return errs
+}
+
+// IsLoopbackAddr reports whether a host:port listen address binds only loopback
+// interfaces: a loopback IP or "localhost". An empty host (all interfaces) is not.
+func IsLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // SlogLevel parses LogLevel.

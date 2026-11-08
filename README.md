@@ -61,8 +61,25 @@ Defaults < JSON file (`DV_CONFIG_FILE`) < environment. Invalid configuration fai
 | `DV_MAX_HEADER_BYTES` / `DV_MAX_BODY_BYTES` | `65536` / `1048576` | Request size limits |
 | `DV_FILE_ROOTS` | _(empty)_ | Directories the `file` source may read, as `name=/abs/dir,other=/abs/dir2` (JSON: `fileRoots: {"name": "/abs/dir"}`). Opened with `os.Root`; nothing outside them is readable. `make run`/`make dev`/compose expose `deploy/samples` as `samples` |
 | `DV_FILE_MAX_BYTES` | `67108864` | Largest file the `file` source reads (1 KiB – 1 GiB) |
+| `DV_QUERY_API_ENABLED` | `false` | Turns on `POST /api/v1/query` and `GET /api/v1/datasources` (FR-016/017). **There is no authentication yet (M3)**, so start-up fails unless `DV_HTTP_ADDR` is a loopback address |
+| `DV_QUERY_API_ALLOW_REMOTE` | `false` | Explicit opt-in to serve the query API on a non-loopback address without authentication; logs a warning. Anyone who can reach the port can read every exposed file root |
+| `DV_QUERY_TIMEOUT` | `30s` | Deadline of each query (max `10m`) |
+| `DV_QUERY_MAX_ROWS` / `DV_QUERY_MAX_BYTES` | `100000` / `33554432` | Host result limits per query; a query may lower `maxRows`, never raise it |
+| _(file only)_ `datasources` | `[]` | Provisioned data-source instances `[{"uid","type","name","jsonData"}]`, validated by their plugin at start-up. `secureJsonData` is refused until encrypted secrets ship (FR-022). Example: [`deploy/query-demo.json`](deploy/query-demo.json) |
 
 JSON file keys use camelCase (`httpAddr`, `shutdownTimeout: "15s"`, …); unknown keys are rejected.
+
+### Query API (preview, loopback only)
+
+```bash
+make run-query    # http://127.0.0.1:8080 with deploy/query-demo.json
+curl -s 127.0.0.1:8080/api/v1/datasources
+curl -s -H 'Content-Type: application/json' 127.0.0.1:8080/api/v1/query \
+  -d '{"queries":[{"refId":"A","datasource":{"uid":"samples"},"query":{"path":"sales.csv"}}]}'
+```
+
+Results are keyed by `refId`: `200` when every query succeeds, `207 Multi-Status` when only
+some do, each with its own `status` and a stable `error.code` (see `api/openapi.json`).
 
 ## Development
 
