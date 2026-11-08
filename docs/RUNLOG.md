@@ -290,3 +290,4 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Not verified locally: govulncheck, gitleaks, Docker build — left to CI.
 - Owner actions: review/merge #14 (then the next runs open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next: B-016 line chart (FR-014), B-064, B-065, rest of B-060.
+- ~21:45 UTC follow-up: CI run 86 (workflow_dispatch) on `feat/json-format` at 2c9afda is green on all 8 jobs, including UI BDD, govulncheck, gitleaks, actionlint and the container image build.
