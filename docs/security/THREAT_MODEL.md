@@ -109,7 +109,7 @@ could not already copy in. Operators should mount roots read-only (as `docker-co
 does) and not give untrusted users write access to them. The same applies to symlinks
 inside a root that point at hidden files in that root.
 
-## F-09 Repository automation: merge bot, dependency updates (NFR-MAINT-006…008, NFR-SEC-014)
+## F-09 Repository automation: merge bot, dependency updates, CI supply chain (NFR-MAINT-006…008, NFR-SEC-014/015)
 
 Trust boundary: GitHub Actions runner with a repository token ↔ pull-request content
 written by anyone who can open a PR (including Dependabot and, for public repos, forks).
@@ -126,6 +126,10 @@ written by anyone who can open a PR (including Dependabot and, for public repos,
 | E | Token can do more than merge | Job permissions `contents: write`, `pull-requests: write`, `checks: read`, nothing else; workflow default `permissions: {}`. | Workflow review |
 | T | Stacked PR merges into an already-merged parent branch and its change never reaches `main` (happened to PR #5) | Bot merges only PRs targeting the default branch; owner setting "Automatically delete head branches" makes GitHub retarget stacked PRs to `main` when the parent merges. | `automerge.feature`; this PR re-lands #5 |
 | T | Malicious dependency release auto-merged | Only after full CI (tests, govulncheck, pnpm audit, gitleaks, image build); non-LTS Node majors ignored; owner can add `hold`. Residual: a compromised release that passes CI. | Dependabot config review |
+| T | A CI tool release asset is replaced, or the download is tampered with, and runs with the job's token (gitleaks, actionlint) | Exact version plus a SHA-256 committed in the workflow, checked with `sha256sum -c` before extraction; no `curl \| sh`, no `curl \| tar` (NFR-SEC-015 AC1). | `internal/cipolicy` tests; `ci_supply_chain.feature` |
+| T | `go run tool@latest` silently picks up a new, possibly compromised tool version | Exact semver required, so the module is verified against sumdb and changes only by commit (AC2). | `ci_supply_chain.feature` |
+| T | An action reference follows a moving branch | `uses:` must name a tag or commit SHA (AC3). Residual: major tags such as `@v4` are mutable upstream; SHA pinning with Dependabot digest updates is tracked as B-058. | `ci_supply_chain.feature` |
+| E | A malformed workflow expression or shell bug in `run:` widens what a step does (e.g. untrusted `${{ }}` interpolation into a script) | `actionlint` + shellcheck on every PR, including its script-injection check (AC4). | CI `Workflow lint (actionlint)` job |
 
 ## Planned features (threats to model at implementation time)
 
