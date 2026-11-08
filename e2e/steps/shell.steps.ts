@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { Given, Then, When } from "./fixtures";
 
 Given("I open the app at {string}", async ({ page }, path: string) => {
@@ -72,4 +72,59 @@ Then("the page has no serious or critical accessibility violations", async ({ pa
 Then("I do not see the text {string}", async ({ page }, text: string) => {
   await expect(page.locator("main")).toBeVisible();
   await expect(page.getByText(text)).toHaveCount(0);
+});
+
+Given("the viewport is {int} by {int} pixels", async ({ page }, width: number, height: number) => {
+  await page.setViewportSize({ width, height });
+});
+
+const navRow = (page: Page) => page.getByTestId("nav-row");
+
+Then(
+  "the navigation link {string} is fully visible in the navigation row",
+  async ({ page }, name: string) => {
+    const link = navRow(page).getByRole("link", { name });
+    await expect(link).toHaveAttribute("aria-current", "page");
+    await expect
+      .poll(async () => {
+        const row = await navRow(page).boundingBox();
+        const box = await link.boundingBox();
+        if (!row || !box) return false;
+        return box.x >= row.x - 0.5 && box.x + box.width <= row.x + row.width + 0.5;
+      })
+      .toBe(true);
+  },
+);
+
+Then("the page does not scroll sideways", async ({ page }) => {
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+/** Asserts the decorative edge fades inside `scope` (FR-005 AC7, FR-013 AC8). */
+export async function expectEdges(scope: Locator, start: boolean, end: boolean) {
+  await expect(scope.getByTestId("scroll-edge-start")).toHaveAttribute(
+    "data-visible",
+    String(start),
+  );
+  await expect(scope.getByTestId("scroll-edge-end")).toHaveAttribute("data-visible", String(end));
+}
+
+const navScope = (page: Page) => page.getByRole("navigation", { name: "Primary" });
+
+Then("the navigation row shows hidden content at the end only", async ({ page }) => {
+  await expectEdges(navScope(page), false, true);
+});
+
+Then("the navigation row shows hidden content at the start", async ({ page }) => {
+  await expect(navScope(page).getByTestId("scroll-edge-start")).toHaveAttribute(
+    "data-visible",
+    "true",
+  );
+});
+
+Then("the navigation row shows no hidden content", async ({ page }) => {
+  await expectEdges(navScope(page), false, false);
 });

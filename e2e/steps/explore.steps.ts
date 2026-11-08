@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { Then, When } from "./fixtures";
+import { expectEdges } from "./shell.steps";
 
 const resultTable = (page: Page) => page.getByTestId("table-panel").getByRole("table");
 const pathField = (page: Page) => page.getByRole("textbox", { name: "Path" });
@@ -91,4 +92,33 @@ Then("there is no rows path field", async ({ page }) => {
 
 Then("the rows path field is marked invalid", async ({ page }) => {
   await expect(rowsPathField(page)).toHaveAttribute("aria-invalid", "true");
+});
+
+const resultScope = (page: Page) => page.getByTestId("table-panel");
+
+Then("the result region shows hidden columns at the end only", async ({ page }) => {
+  await expectEdges(resultScope(page), false, true);
+});
+
+Then("the result region shows hidden columns at the start only", async ({ page }) => {
+  await expectEdges(resultScope(page), true, false);
+});
+
+Then("the result region shows no hidden columns", async ({ page }) => {
+  await expectEdges(resultScope(page), false, false);
+});
+
+When("I scroll the result region to the end with the keyboard", async ({ page }) => {
+  const region = page.getByTestId("table-region");
+  await region.focus();
+  await expect(region).toBeFocused();
+  // Arrow keys scroll a focused region (FR-013 AC7); stop once the end is reached.
+  for (let i = 0; i < 200; i++) {
+    const atEnd = await region.evaluate(
+      (el) => Math.abs(el.scrollLeft) >= el.scrollWidth - el.clientWidth - 1,
+    );
+    if (atEnd) return;
+    await page.keyboard.press("ArrowRight");
+  }
+  throw new Error("the result region did not reach its end with ArrowRight");
 });
