@@ -44,7 +44,6 @@ var (
 	// A download whose output goes through a pipe into a shell or an extractor.
 	pipedDownload = regexp.MustCompile(`(?:^|[\s;&(])(?:curl|wget)\s[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|tar|python3?|perl|unzip|gunzip|xz)\b`)
 	hashCheck     = regexp.MustCompile(`\b(?:sha256sum|shasum\s+-a\s*256)\b[^\n]*(?:\s-c\b|--check\b)`)
-	hashLiteral   = regexp.MustCompile(`\b[0-9a-f]{64}\b`)
 
 	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\s+((?:-\S+\s+)*)(\S+)`)
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -114,8 +113,8 @@ func CheckScript(name string, line int, script string) []Finding {
 	if pipedDownload.MatchString(joined) {
 		add(RuleDownloadPiped, "a download is piped straight into a shell or extractor; save it to a file and verify its SHA-256 first")
 	}
-	if downloadCmd.MatchString(joined) && (!hashCheck.MatchString(joined) || !hashLiteral.MatchString(joined)) {
-		add(RuleDownloadUnverified, "the step downloads a file but does not check it against a committed SHA-256 (sha256sum -c)")
+	for _, msg := range unverifiedDownloads(joined) {
+		add(RuleDownloadUnverified, msg)
 	}
 	for _, m := range goTool.FindAllStringSubmatch(joined, -1) {
 		target := unquote(m[2])
@@ -129,6 +128,125 @@ func CheckScript(name string, line int, script string) []Finding {
 		if v := target[at+1:]; !exactSemv.MatchString(v) {
 			add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
 		}
+	}
+	return out
+}
+
+// segmentSep splits a script into commands; pipes stay inside one command so that
+// `echo "<sha>  file" | sha256sum -c -` is a single verification command.
+var segmentSep = regexp.MustCompile(`\n|;|&&|\|\|`)
+
+// unverifiedDownloads applies NFR-SEC-015 AC1 per downloaded file: each file needs a
+// `<sha256>  <file>` binding and a later `sha256sum -c`, with no other use of the file in
+// between. A piped download has no output file, so it is reported here as well as by
+// RuleDownloadPiped.
+func unverifiedDownloads(script string) []string {
+	segs := segmentSep.Split(script, -1)
+	var out []string
+	for i, seg := range segs {
+		if !downloadCmd.MatchString(seg) {
+			continue
+		}
+		file := downloadTarget(seg)
+		if file == "" {
+			out = append(out, "cannot tell which output file a download writes; save it with -o <file> and verify that file's SHA-256 (sha256sum -c)")
+			continue
+		}
+		bind := regexp.MustCompile(`\b[0-9a-f]{64}\s+\*?` + regexp.QuoteMeta(file) + `(?:$|[\s"'])`)
+		mention := regexp.MustCompile(`(?:^|[\s"'/=])` + regexp.QuoteMeta(file) + `(?:$|[\s"';|&)])`)
+		bound, verified := false, false
+		for _, later := range segs[i+1:] {
+			if bind.MatchString(later) {
+				bound = true
+			}
+			if hashCheck.MatchString(later) && bound {
+				verified = true
+				break
+			}
+			if !bind.MatchString(later) && mention.MatchString(later) {
+				break // used (extracted, run, moved) before it was verified
+			}
+		}
+		if !verified {
+			out = append(out, fmt.Sprintf("downloaded file %q is not verified against a committed SHA-256 (\"<sha256>  %s\" | sha256sum -c) before it is used", file, file))
+		}
+	}
+	return out
+}
+
+// downloadTarget returns the file a curl/wget command writes, or "" when it writes to
+// stdout or cannot be determined.
+func downloadTarget(seg string) string {
+	f := strings.Fields(seg)
+	tool, start := "", -1
+	for i, t := range f {
+		if t == "curl" || t == "wget" {
+			tool, start = t, i
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	var url, out string
+	remote := tool == "wget" // wget saves under the URL's name unless told otherwise
+	for i := start + 1; i < len(f); i++ {
+		t := unquote(f[i])
+		next := func() string {
+			if i+1 < len(f) {
+				i++
+				return unquote(f[i])
+			}
+			return ""
+		}
+		switch {
+		case t == ">" || t == ">>":
+			out = next()
+		case strings.HasPrefix(t, ">"):
+			out = strings.TrimLeft(t, ">")
+		case t == "--output" || t == "--output-document":
+			out = next()
+		case strings.HasPrefix(t, "--output=") || strings.HasPrefix(t, "--output-document="):
+			out = t[strings.Index(t, "=")+1:]
+		case t == "--remote-name" || t == "--remote-name-all":
+			remote = true
+		case strings.Contains(t, "://"):
+			if url == "" {
+				url = t
+			}
+		case strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && len(t) > 1:
+			flags := t[1:]
+			// Short-option clusters: the value flag is last (-sSfLo file), or its value
+			// is attached (-ofile, -O-).
+			if tool == "curl" {
+				if k := strings.IndexByte(flags, 'o'); k >= 0 {
+					if k == len(flags)-1 {
+						out = next()
+					} else {
+						out = flags[k+1:]
+					}
+				} else if strings.ContainsRune(flags, 'O') {
+					remote = true
+				}
+			} else if k := strings.IndexByte(flags, 'O'); k >= 0 {
+				if k == len(flags)-1 {
+					out = next()
+				} else {
+					out = flags[k+1:]
+				}
+			}
+		}
+	}
+	if out == "-" {
+		out = ""
+		remote = false
+	}
+	if out == "" && remote && url != "" {
+		u := url
+		if q := strings.IndexAny(u, "?#"); q >= 0 {
+			u = u[:q]
+		}
+		out = u[strings.LastIndex(u, "/")+1:]
 	}
 	return out
 }

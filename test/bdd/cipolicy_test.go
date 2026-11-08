@@ -63,6 +63,14 @@ func initializeCIPolicyScenario(sc *godog.ScenarioContext) {
 		return fmt.Errorf("no %q finding in %v", rule, w.findings)
 	}
 	sc.Step(`^the policy reports "([^"]*)"$`, reports)
+	sc.Step(`^the finding mentions "([^"]*)"$`, func(text string) error {
+		for _, f := range w.findings {
+			if strings.Contains(f.Message, text) {
+				return nil
+			}
+		}
+		return fmt.Errorf("no finding mentions %q: %v", text, w.findings)
+	})
 	sc.Step(`^the result for the action is "([^"]*)"$`, func(want string) error {
 		if want == "pass" {
 			if len(w.findings) != 0 {
