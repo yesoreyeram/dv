@@ -494,6 +494,9 @@ func decodeError(where string, err error) error {
 	}
 	var se *json.SyntaxError
 	switch {
+	case errors.As(err, &se) && strings.Contains(se.Error(), "unexpected end"):
+		// Newer Go releases report truncated input as a SyntaxError.
+		return fmt.Errorf("%sunexpected end of input: %w", where, plugin.ErrDecode)
 	case errors.As(err, &se):
 		return fmt.Errorf("%sinvalid JSON syntax at offset %d: %w", where, se.Offset, plugin.ErrDecode)
 	case errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):

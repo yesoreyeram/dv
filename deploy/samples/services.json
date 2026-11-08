@@ -2,10 +2,42 @@
   "generatedAt": "2026-11-08T00:00:00Z",
   "data": {
     "services": [
-      { "name": "checkout", "tier": 1, "healthy": true, "lastDeploy": "2026-11-07T14:20:00Z", "owner": { "team": "payments", "oncall": "rota-a" }, "regions": ["emea", "apac"], "p95Ms": 182.5 },
-      { "name": "search", "tier": 1, "healthy": true, "lastDeploy": "2026-11-06T09:05:00Z", "owner": { "team": "discovery", "oncall": "rota-b" }, "regions": ["emea", "amer"], "p95Ms": 96.1 },
-      { "name": "catalog", "tier": 2, "healthy": false, "lastDeploy": "2026-11-08T07:45:00Z", "owner": { "team": "discovery", "oncall": "rota-b" }, "regions": ["amer"], "p95Ms": 411 },
-      { "name": "notifications", "tier": 3, "healthy": true, "lastDeploy": "2026-10-30T16:10:00Z", "owner": { "team": "platform", "oncall": "rota-c" }, "regions": ["emea", "amer", "apac"], "p95Ms": 58.7 }
+      {
+        "name": "checkout",
+        "tier": 1,
+        "healthy": true,
+        "lastDeploy": "2026-11-07T14:20:00Z",
+        "owner": { "team": "payments", "oncall": "rota-a" },
+        "regions": ["emea", "apac"],
+        "p95Ms": 182.5
+      },
+      {
+        "name": "search",
+        "tier": 1,
+        "healthy": true,
+        "lastDeploy": "2026-11-06T09:05:00Z",
+        "owner": { "team": "discovery", "oncall": "rota-b" },
+        "regions": ["emea", "amer"],
+        "p95Ms": 96.1
+      },
+      {
+        "name": "catalog",
+        "tier": 2,
+        "healthy": false,
+        "lastDeploy": "2026-11-08T07:45:00Z",
+        "owner": { "team": "discovery", "oncall": "rota-b" },
+        "regions": ["amer"],
+        "p95Ms": 411
+      },
+      {
+        "name": "notifications",
+        "tier": 3,
+        "healthy": true,
+        "lastDeploy": "2026-10-30T16:10:00Z",
+        "owner": { "team": "platform", "oncall": "rota-c" },
+        "regions": ["emea", "amer", "apac"],
+        "p95Ms": 58.7
+      }
     ]
   }
 }
