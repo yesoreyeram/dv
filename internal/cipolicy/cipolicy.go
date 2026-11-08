@@ -141,6 +141,10 @@ var segmentSep = regexp.MustCompile(`\n|;|&&|\|\|`)
 // break, `;` or the start/end of the script).
 type segment struct {
 	text, before, after string
+	// nested is true inside any compound command (if/case/loops/functions/subshells/
+	// brace groups), where a check may not run; errexitOff after `set +e`, where a failed
+	// check does not stop the step.
+	nested, errexitOff bool
 }
 
 func splitSegments(script string) []segment {
@@ -166,7 +170,51 @@ func splitSegments(script string) []segment {
 			prev = idx[k][1]
 		}
 	}
+	markControlFlow(out)
 	return out
+}
+
+var (
+	openers   = map[string]bool{"if": true, "case": true, "while": true, "until": true, "for": true, "select": true, "function": true, "{": true, "(": true}
+	closers   = map[string]bool{"fi": true, "esac": true, "done": true, "}": true, ")": true}
+	inners    = map[string]bool{"then": true, "do": true, "else": true, "elif": true}
+	funcDef   = regexp.MustCompile(`^[A-Za-z_][\w-]*\s*\(\s*\)`)
+	errexitOn = regexp.MustCompile(`^set\s+(?:-e\b|-o\s+errexit\b|-[a-zA-Z]*e[a-zA-Z]*\b)`)
+	errexitNo = regexp.MustCompile(`^set\s+(?:\+e\b|\+o\s+errexit\b|\+[a-zA-Z]*e[a-zA-Z]*\b)`)
+)
+
+// markControlFlow sets nested and errexitOff conservatively from each command's first
+// word: openers raise the depth, closers lower it, and anything at depth > 0 (or a
+// then/do/else branch) counts as nested. It errs towards "nested", which only ever
+// rejects a verification.
+func markControlFlow(segs []segment) {
+	depth, off := 0, false
+	for i := range segs {
+		t := strings.TrimSpace(segs[i].text)
+		first := t
+		if f := strings.Fields(t); len(f) > 0 {
+			first = f[0]
+		}
+		switch {
+		case errexitNo.MatchString(t):
+			off = true
+		case errexitOn.MatchString(t):
+			off = false
+		}
+		segs[i].errexitOff = off
+		switch {
+		case closers[first] || strings.HasPrefix(first, "}") || strings.HasPrefix(first, ")"):
+			if depth > 0 {
+				depth--
+			}
+			segs[i].nested = true
+		case openers[first] || strings.HasPrefix(first, "(") || strings.HasPrefix(first, "{") || funcDef.MatchString(t):
+			depth++
+			segs[i].nested = true
+		default:
+			segs[i].nested = depth > 0 || inners[first]
+		}
+	}
 }
 
 // checkCmd is the only accepted verification form (NFR-SEC-015 AC1): the hash line is
@@ -177,7 +225,7 @@ var checkCmd = regexp.MustCompile(`^\s*(?:echo|printf)\s([^|<>` + "`" + `$]*)\|\
 // verifies reports whether seg is a standalone checksum command whose piped input binds
 // file to a committed SHA-256.
 func verifies(seg segment, file string) bool {
-	if seg.before != "" || seg.after == "||" {
+	if seg.nested || seg.errexitOff || seg.before != "" || seg.after == "||" {
 		return false // conditional: `x && check`, `x || check`, `check || true`
 	}
 	m := checkCmd.FindStringSubmatch(seg.text)
