@@ -18,6 +18,7 @@ func TestRepoAutomationFeatures(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			initializeAutomergeScenario(sc)
 			initializeCIPolicyScenario(sc)
+			initializeToolchainScenario(sc)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
