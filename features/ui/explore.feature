@@ -49,3 +49,29 @@ Feature: Explore data from a provisioned source
     When I press Run
     Then the path field is marked invalid
     And no result is shown
+
+  @FR-012
+  Scenario: Query a nested JSON file with a rows path and flattened fields
+    Given I open the app at "/explore"
+    When I enter the path "services.json"
+    And I enter the rows path "data.services"
+    And I check "Flatten nested objects"
+    And I press Run
+    Then the result table has 4 rows
+    And the result table has the column "owner.team"
+    And the page has no serious or critical accessibility violations
+
+  @FR-012
+  Scenario: NDJSON files offer only the flatten option
+    Given I open the app at "/explore?ds=samples&path=events.ndjson"
+    Then there is no rows path field
+    When I press Run
+    Then the result table has 5 rows
+
+  @FR-012
+  Scenario: A malformed rows path is reported inline and nothing is sent
+    Given I open the app at "/explore?ds=samples&path=services.json"
+    When I enter the rows path "data[0]"
+    And I press Run
+    Then the rows path field is marked invalid
+    And no result is shown

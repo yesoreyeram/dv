@@ -251,6 +251,13 @@ NDJSON is pulled forward from FR-060 because it shares the decoder.
   (NDJSON) and never echo file content; trailing data after the top-level `json` value is a
   decode error. Duplicate keys in one object keep the last value.
 - AC8: frames are named and given `meta` as in FR-011 AC10.
+- AC9: Explore (FR-018) shows the JSON options when the chosen format is `json`, or when
+  the format is automatic and the path ends in `.json`: a "Rows path" text field and a
+  "Flatten nested objects" checkbox; for `ndjson` (or `.ndjson`/`.jsonl` paths) only the
+  checkbox. Both are kept in the URL (`rowsPath`, `flatten=1`) and sent as
+  `query.options` only when set. A rows path that breaks the AC2 rules is reported inline
+  (`aria-invalid`, linked error text) and nothing is sent. Sample files `services.json`
+  and `events.ndjson` ship in `deploy/samples`.
 
 ### FR-016 — Query API `POST /api/v1/query` (M)
 Clients run one or more queries against configured data-source instances and get frames
