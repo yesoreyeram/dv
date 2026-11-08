@@ -226,3 +226,14 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Nine PRs open, so the run rules forbid a new PR; #14 needs no more work. Enabling auto-merge was refused again ("Allow auto-merge" is off in repo settings).
 - Owner actions needed: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next (after #14 merges): B-014 `POST /api/v1/query` + B-042 + B-040/B-044; then B-013 JSON; B-050; B-058.
+
+## 2026-11-08 ~17:35–18:10 UTC — B-014/B-040/B-042/B-044 query API prepared on branch `feat/query-api` (no new PR)
+- Triage: [PR #14](https://github.com/yesoreyeram/dv/pull/14) unchanged: `clean`, all 8 checks green at d460122, all review threads resolved, Codex reports no findings. Dependabot #6–#13 open; no open issues; `main` at 7182acb. Other PRs are open, so the run rules forbid opening a new PR.
+- Instead of another no-op run, the next increment was built and pushed as branch **`feat/query-api`** (stacked on #14, no PR yet). The next run should open its PR once #14 merges (rebasing onto `main`), not rebuild it.
+- Market note: modelled on the multi-query shape of established tools (Grafana `/api/ds/query`, Datadog/New Relic multi-query APIs): queries with `refId` + data-source `uid`, results keyed by `refId` with per-query status; partial failure answered `207`.
+- Requirements first (006c8ec): FR-016 AC1–AC8, NFR-SEC-016 (data endpoints off by default; non-loopback needs a named acknowledgement before M3), threat model F-10, `features/api/query.feature` (16 scenarios incl. outlines).
+- Shipped on the branch (1e925c4): `dataSources` provisioning (no secret fields; validated by the plugin at start-up), `queryApiEnabled` off by default, `GET /api/v1/datasources` (uid/type/name only), `POST /api/v1/query` (strict JSON, ≤ 10 queries, `maxRows` can only lower `queryMaxRows`, `queryMaxBytes` shared per request, `queryTimeout` capped at `writeTimeout`), stable error codes (400/404/413/415/422/504/500), metadata-only query logs; `csvformat.ErrInvalidOptions`; OpenAPI + README + `deploy/query-api.example.json`.
+- Evidence: `go test -race` all green, total coverage 97.8 % (`internal/query` 99.1 %); `GOPROXY=direct go test ./test/bdd/` green (API suite 54 scenarios); negative control: dropping the shared byte budget fails 1 scenario; golangci-lint 0 issues; `make lint` clean; live server driven with Playwright and curl (screenshots + transcript in `docs/screenshots/feat-query-api/` on that branch); non-loopback start-up without the acknowledgement refused.
+- Not verified locally: govulncheck, gitleaks, Docker build (CI). No dependency or web changes.
+- Owner actions: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next: after #14 merges, open the `feat/query-api` PR (B-014/B-040/B-042/B-044); then B-013 JSON, B-015 Explore page on top of the query API, B-050.
