@@ -15,7 +15,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-012 | CSV/TSV format + file source rooted with `os.Root` (+ default query limits, capReader contract fix, inference from retained rows only) | M2 | FR-011, NFR-SEC-006 | Done (merged in #2–#4) |
 | B-013 | JSON format | M2 | FR-012 | Todo |
 | B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON, per-refId results, 207 on partial failure, ≤ 20 queries / 4 concurrent, per-query timeout, off by default + loopback-only gate) | M2 | FR-016, FR-010, NFR-SEC-009, NFR-SEC-016 | Ready on branch `feat/query-api` (PR waits for #14) |
-| B-015 | Explore page: source picker, query, table panel | M2 | FR-013, NFR-A11Y-004 | Todo |
+| B-015 | Explore page: source picker, query, table panel | M2 | FR-013, FR-018, NFR-PERF-005 | Ready on branch `feat/explore` (stacked on `feat/query-api`; PR waits for #14 and the query API PR) |
 | B-016 | Line-chart panel with table alternative | M2 | FR-014, NFR-A11Y-004 | Todo |
 | B-017 | i18n message catalog + `Intl` formatting helpers | M2 | NFR-I18N-001/002 | Todo |
 | B-020 | Require auth for `/api/v1/version` once M3 lands | M3 | NFR-SEC-003 | Todo |
@@ -58,3 +58,4 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-061 | One `go test -race ./...` run in the 12:45 UTC sandbox reported `test/bdd` FAIL under full-parallel load; 5 reruns (package alone and full) passed. Identify the timing-sensitive scenario (likely the 500 rps probe load) and make it robust | M1 | NFR-PERF-001 | Todo |
 | B-062 | Query API memory bound: every query in a request gets the full `queryMaxBytes` and all results are held until the response is written, so one request can retain up to 20 × `queryMaxBytes` (default 32 MiB, so up to 640 MiB). Make the byte limit a per-request budget (reserve from a shared counter before each query, give back what it did not use), add a godog scenario with a negative control, and state it in FR-016 / NFR-PERF-003. Fold into this PR before opening it | M2 | FR-016, NFR-PERF-003 | Done (feat/query-api, 18:35 UTC run) |
 | B-063 | DNS rebinding defeats the loopback-only gate: a page the operator visits can rebind its own name to 127.0.0.1 and read `/api/v1/query` same-origin. Gated endpoints accept only loopback `Host` values while `queryApiAllowRemote=false`; `POST /api/v1/query` refuses cross-site `Sec-Fetch-Site` / foreign `Origin` | M2 | NFR-SEC-017, FR-016 AC7 | Done (feat/query-api, 19:35 UTC run) |
+| B-064 | Explore follow-ups: query history (last N queries, per browser), file browser for the `file` source (needs a server-side list endpoint with the FR-011 path rules), split view, and a time-series panel toggle once FR-014 lands | M2 | FR-018, FR-014 | Todo |

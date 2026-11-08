@@ -1,0 +1,16 @@
+$ curl -s -X POST http://127.0.0.1:18091/api/v1/query -H "Content-Type: application/json" -d '{"queries":[{"refId":"A","datasource":{"uid":"samples"},"query":{"path":"hosts.tsv"}}]}' | head -c 160
+{"results":{"A":{"status":200,"frames":[{"schema":{"name":"hosts.tsv","meta":{"source":"file","executedQuery":"samples:hosts.tsv"},"fields":[{"name":"host","typ
+
+# DNS rebinding: the browser sends the attacker name as Host
+$ curl -s -X POST http://127.0.0.1:18091/api/v1/query -H "Host: attacker.example:18091" -H "Content-Type: application/json" -d ...
+{"error":{"code":"host_not_allowed","message":"this endpoint only answers requests addressed to localhost or a loopback IP","requestId":"ddbca26f0b3235aea68bb9030ec590a1"}}
+ [HTTP 403]
+
+# Cross-site page (Fetch Metadata)
+$ curl -s -X POST http://127.0.0.1:18091/api/v1/query -H "Sec-Fetch-Site: cross-site" -H "Content-Type: application/json" -d ...
+{"error":{"code":"cross_site_request","message":"cross-site requests to this endpoint are not allowed","requestId":"6608ad4661464ca61303aacc6cf4785a"}}
+ [HTTP 403]
+
+$ curl -s http://127.0.0.1:18091/api/v1/datasources -H "Host: attacker.example"
+{"error":{"code":"host_not_allowed","message":"this endpoint only answers requests addressed to localhost or a loopback IP","requestId":"caa6b200ee9f3a4bfc8f9c9cfdbf7d49"}}
+ [HTTP 403]
