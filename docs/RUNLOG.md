@@ -247,3 +247,10 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Evidence: `scripts/check-toolchain.sh` consistent; `go test -race -count=1 ./...` all ok (incl. `TestRepositoryWorkflows`); `GOPROXY=direct go test -run TestRepoAutomationFeatures ./test/bdd/` ok; golangci-lint 0 issues. No app change, so no new screenshots.
 - Owner actions: review/merge #14 (then the next runs open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next: after #14 merges, rebase the stack onto `main` and open `feat/query-api`; then B-016 line chart (FR-014).
+
+## 2026-11-08 ~23:35 UTC — PR #14 brought up to date with `main` after #6, #8, #9 (no new PR)
+- Triage: `main` moved to 0397a44 (owner merged Dependabot #6 `download-artifact` v8, #9 `setup-node` v7, #8 godog 0.15 → 0.16). Open: #14 plus Dependabot #7, #10, #11, #12; no open issues. #14: 8/8 checks green at 6cd025e, all 10 review threads resolved, Codex no findings. Other PRs are open, so no new PR.
+- Shipped on [PR #14](https://github.com/yesoreyeram/dv/pull/14): merged `main` (no conflicts; `ci.yml`, `go.mod`, `go.sum`). Action versions are now uniform across all workflows (checkout v7, setup-node v7, download-artifact v8).
+- Evidence: `scripts/check-toolchain.sh` consistent (go 1.24.7, node 26.13.0, pnpm 10.28.0, golangci-lint 2.5.0); `GOPROXY=direct go test -race -count=1 ./...` all ok, including the godog suites on godog 0.16.0 (gherkin v42, messages v34); golangci-lint 0 issues. No app change, so no new screenshots.
+- Owner actions: review/merge #14 (then the next runs rebase and open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7 (Node 25 is not LTS; #14 moves to 26); optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next: after #14 merges, rebase the stack onto `main` and open `feat/query-api`; then B-016 line chart (FR-014).
