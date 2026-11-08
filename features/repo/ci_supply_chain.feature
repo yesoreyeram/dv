@@ -41,6 +41,9 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
       | wget -qO- https://example.com/install.sh \| sh                                                                                          | download-piped      |
       | go run golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                                   | go-tool-unpinned    |
       | go install github.com/example/tool@main                                                                                                 | go-tool-unpinned    |
+      | go run -tags netgo golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                       | go-tool-unpinned    |
+      | go run -ldflags "-s -w" -mod mod golang.org/x/vuln/cmd/govulncheck@latest ./...                                                         | go-tool-unpinned    |
+      | go install -C /tmp github.com/example/a@v1.2.3 github.com/example/b@latest                                                              | go-tool-unpinned    |
 
   Scenario: A download inside a heredoc is refused too
     Given a workflow step that runs:
