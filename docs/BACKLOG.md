@@ -13,7 +13,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-010 | `internal/frame`: data-frame model, JSON wire encoding, limits (+ TS decoder) | M2 | FR-010, NFR-PERF-003 | Done (merged in #2–#4) |
 | B-011 | Plugin registry + `Source`/`Format` interfaces (ADR-0002) with readiness check, `GET /api/v1/plugins`, Data sources catalogue page | M2 | FR-015, NFR-SEC-002 | Done (merged in #2–#4) |
 | B-012 | CSV/TSV format + file source rooted with `os.Root` (+ default query limits, capReader contract fix, inference from retained rows only) | M2 | FR-011, NFR-SEC-006 | Done (merged in #2–#4) |
-| B-013 | JSON format | M2 | FR-012 | Todo |
+| B-013 | JSON and NDJSON formats (`json`, `ndjson`; rowsPath, flatten, streaming limits) | M2 | FR-012 | In progress (branch `feat/json-format`, stacked on `feat/explore`) |
 | B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON, per-refId results, 207 on partial failure, ≤ 20 queries / 4 concurrent, per-query timeout, off by default + loopback-only gate) | M2 | FR-016, FR-010, NFR-SEC-009, NFR-SEC-016 | Ready on branch `feat/query-api` (PR waits for #14) |
 | B-015 | Explore page: source picker, query, table panel | M2 | FR-013, FR-018, NFR-PERF-005 | Ready on branch `feat/explore` (stacked on `feat/query-api`; PR waits for #14 and the query API PR) |
 | B-016 | Line-chart panel with table alternative | M2 | FR-014, NFR-A11Y-004 | Todo |
