@@ -156,6 +156,9 @@ func initializeCIPolicyScenario(sc *godog.ScenarioContext) {
 		}
 		w.workflow = b.String()
 	})
+	sc.Step(`^a workflow file:$`, func(doc *godog.DocString) {
+		w.workflow = doc.Content + "\n"
+	})
 	sc.Step(`^a workflow step that uses "([^"]*)"$`, func(ref string) {
 		w.workflow = "jobs:\n  a:\n    steps:\n      - uses: " + ref + "\n"
 	})

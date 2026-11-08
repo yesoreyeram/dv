@@ -52,7 +52,10 @@ var (
 	httpsArg   = regexp.MustCompile(`^https://\S+$`)
 	sha256Arg  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\s+((?:-\S+\s+)*)(\S+)`)
+	// A `go run`/`go install` command and all its arguments (up to the end of the command).
+	// Flags are not parsed: every module/path@version argument is checked instead, so a
+	// value-taking flag (-tags netgo, -C dir) cannot hide the package (NFR-SEC-015 AC2).
+	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\b([^;&|\n]*)`)
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
 	actionTag = regexp.MustCompile(`^v\d+(?:\.\d+){0,2}$`)
@@ -79,32 +82,34 @@ func CheckWorkflow(name string, src []byte) []Finding {
 		if m == nil {
 			continue
 		}
-		// Block content must be indented deeper than the `run` key itself; a sibling key
-		// such as `env:` (same column as `run`) ends the block.
+		// Continuation lines must be indented deeper than the `run` key itself; a sibling
+		// key such as `env:` (same column as `run`) ends the value.
 		indent := strings.Index(line, "run:")
 		rest := strings.TrimSpace(m[2])
-		var script string
-		if strings.HasPrefix(rest, "|") || strings.HasPrefix(rest, ">") {
-			var body []string
-			j := i + 1
-			for ; j < len(lines); j++ {
-				l := lines[j]
-				if strings.TrimSpace(l) == "" {
-					body = append(body, "")
-					continue
-				}
-				if leading(l) <= indent {
-					break
-				}
-				body = append(body, l)
+		keyLine := i + 1
+		var body []string
+		j := i + 1
+		for ; j < len(lines); j++ {
+			l := lines[j]
+			if strings.TrimSpace(l) != "" && leading(l) <= indent {
+				break
 			}
-			script = strings.Join(body, "\n")
-			out = append(out, CheckScript(name, i+1, script)...)
-			i = j - 1
-			continue
+			body = append(body, l)
 		}
-		script = unquote(rest)
-		out = append(out, CheckScript(name, i+1, script)...)
+		i = j - 1
+		// Each reading Actions may execute is checked, and a finding from any of them
+		// counts (NFR-SEC-015 AC5): literal lines for `|`, lines joined by spaces for a
+		// folded `>` block and for multi-line plain or quoted scalars.
+		var readings []string
+		switch {
+		case strings.HasPrefix(rest, "|"):
+			readings = []string{strings.Join(body, "\n")}
+		case strings.HasPrefix(rest, ">"):
+			readings = []string{strings.Join(body, "\n"), foldLines(body)}
+		default:
+			readings = []string{unquote(strings.TrimSpace(stripComment(rest) + " " + foldLines(body)))}
+		}
+		out = append(out, dedupe(readings, func(script string) []Finding { return CheckScript(name, keyLine, script) })...)
 	}
 	return out
 }
@@ -138,16 +143,18 @@ func CheckScript(name string, line int, script string) []Finding {
 		}
 	}
 	for _, m := range goTool.FindAllStringSubmatch(joined, -1) {
-		target := unquote(m[2])
-		if strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
-			continue // local package or a path inside the checkout
-		}
-		at := strings.LastIndex(target, "@")
-		if at < 0 {
-			continue // resolved through this module's go.mod/go.sum
-		}
-		if v := target[at+1:]; !exactSemv.MatchString(v) {
-			add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
+		for _, tok := range strings.Fields(m[1]) {
+			target := unquote(strings.Trim(tok, `"'`))
+			if strings.HasPrefix(target, "-") || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
+				continue // a flag, a local package or a path inside the checkout
+			}
+			at := strings.LastIndex(target, "@")
+			if at < 0 || !strings.Contains(target[:at], "/") {
+				continue // no version: resolved through this module's go.mod/go.sum
+			}
+			if v := target[at+1:]; !exactSemv.MatchString(v) {
+				add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
+			}
 		}
 	}
 	return out
@@ -228,6 +235,34 @@ func stripShellComments(script string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// foldLines joins the non-blank lines of a YAML scalar with single spaces, as YAML
+// folding does for lines at the same indentation. It is used as an extra reading, so
+// over-joining (more-indented lines YAML would keep) can only add findings.
+func foldLines(lines []string) string {
+	var parts []string
+	for _, l := range lines {
+		if t := strings.TrimSpace(l); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// dedupe runs check on every reading and returns each distinct finding once.
+func dedupe(readings []string, check func(string) []Finding) []Finding {
+	var out []Finding
+	seen := map[string]bool{}
+	for _, r := range readings {
+		for _, f := range check(r) {
+			if k := f.Rule + "\x00" + f.Message; !seen[k] {
+				seen[k] = true
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 func leading(s string) int { return len(s) - len(strings.TrimLeft(s, " \t")) }
