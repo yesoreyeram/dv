@@ -58,14 +58,29 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
     Then the policy reports "download-unverified"
     And the finding mentions "tool"
 
+  Scenario Outline: The hash must be piped straight into the check that uses it
+    Given a workflow step that runs:
+      """
+      <script>
+      """
+    When the CI supply-chain policy checks the workflow
+    Then the policy reports "download-unverified"
+    And the finding mentions "tool"
+
+    Examples:
+      | script |
+      | curl -fLo tool https://e.com/tool; echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' > expected.sha256; sha256sum -c other.sha256; ./tool |
+      | curl -fLo tool https://e.com/tool; echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' > sums; sha256sum -c sums; ./tool |
+      | curl -fLo tool https://e.com/tool; echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' \| sha256sum -c - \|\| true; ./tool |
+      | curl -fLo tool https://e.com/tool; if echo 'a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  tool' \| sha256sum -c -; then :; fi; ./tool |
+
   Scenario: Two downloads, each verified before use, pass
     Given a workflow step that runs:
       """
       curl -sSfLo a.tgz https://example.com/a.tgz
       wget -q https://example.com/dl/b.zip
-      printf '%s  %s\n' a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb a.tgz > sums
-      echo "b65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  b.zip" >> sums
-      sha256sum -c sums
+      printf '%s  %s\n' a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb a.tgz | sha256sum -c -
+      echo "b65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  b.zip" | sha256sum --check
       tar -xzf a.tgz && unzip b.zip
       """
     When the CI supply-chain policy checks the workflow
