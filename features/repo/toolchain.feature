@@ -45,7 +45,7 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
 
   Scenario: A coordinated patch bump of every pin passes without editing this file
     Given a copy of the repository's toolchain declarations
-    And every Go pin is bumped by one patch version
+    And every Go, pnpm and golangci-lint pin is bumped by one patch version
     When the toolchain check runs
     Then the toolchain check passes
 

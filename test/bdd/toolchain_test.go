@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +67,11 @@ func initializeToolchainScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^in "([^"]*)" the text '([^']*)' is replaced with '([^']*)'$`, func(file, from, to string) error {
+		vars, err := w.pins()
+		if err != nil {
+			return err
+		}
+		from, to = expand(from, vars), expand(to, vars)
 		p := filepath.Join(w.dir, file)
 		b, err := os.ReadFile(p)
 		if err != nil {
@@ -99,7 +105,42 @@ func initializeToolchainScenario(sc *godog.ScenarioContext) {
 		}
 		return nil
 	})
+	sc.Step(`^every Go, pnpm and golangci-lint pin is bumped by one patch version$`, func() error {
+		vars, err := w.pins()
+		if err != nil {
+			return err
+		}
+		edits := []struct{ file, from, to string }{
+			{"mise.toml", `go = "{go}"`, `go = "` + nextPatch(vars["go"]) + `"`},
+			{"go.mod", "go {go}\n", "go " + nextPatch(vars["go"]) + "\n"},
+			{"mise.toml", `pnpm = "{pnpm}"`, `pnpm = "` + nextPatch(vars["pnpm"]) + `"`},
+			{"package.json", `"pnpm@{pnpm}"`, `"pnpm@` + nextPatch(vars["pnpm"]) + `"`},
+			{"deploy/Dockerfile", "pnpm@{pnpm}", "pnpm@" + nextPatch(vars["pnpm"])},
+			{"mise.toml", `golangci-lint = "{golangci-lint}"`, `golangci-lint = "` + nextPatch(vars["golangci-lint"]) + `"`},
+			{".github/workflows/ci.yml", "version: v{golangci-lint}", "version: v" + nextPatch(vars["golangci-lint"])},
+		}
+		for _, e := range edits {
+			p := filepath.Join(w.dir, e.file)
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			from := expand(e.from, vars)
+			if !bytes.Contains(b, []byte(from)) {
+				return fmt.Errorf("%s does not contain %q", e.file, from)
+			}
+			if err := os.WriteFile(p, bytes.ReplaceAll(b, []byte(from), []byte(e.to)), 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	sc.Step(`^the toolchain check output mentions "([^"]*)"$`, func(text string) error {
+		vars, err := w.pins()
+		if err != nil {
+			return err
+		}
+		text = expand(text, vars)
 		if !strings.Contains(w.output, text) {
 			return fmt.Errorf("output does not mention %q:\n%s", text, w.output)
 		}
@@ -115,6 +156,56 @@ func initializeToolchainScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" builds the web assets with "([^"]*)"$`, func(file, image string) error {
 		return w.match(file, `(?m)^FROM (node:\S+) AS web$`, image, 1)
 	})
+}
+
+// pins reads the copied mise.toml into the {name} placeholders the feature uses.
+func (w *toolchainWorld) pins() (map[string]string, error) {
+	b, err := os.ReadFile(filepath.Join(w.dir, "mise.toml"))
+	if err != nil {
+		return nil, err
+	}
+	vars := map[string]string{}
+	for _, m := range regexp.MustCompile(`(?m)^([a-z-]+)\s*=\s*"([^"]+)"`).FindAllStringSubmatch(string(b), -1) {
+		vars[m[1]] = m[2]
+	}
+	for _, k := range []string{"go", "node", "pnpm", "golangci-lint"} {
+		if vars[k] == "" {
+			return nil, fmt.Errorf("mise.toml has no %s pin", k)
+		}
+	}
+	if i := strings.LastIndex(vars["go"], "."); i > 0 {
+		vars["go.minor"] = vars["go"][:i]
+	}
+	major, err := strconv.Atoi(strings.SplitN(vars["node"], ".", 2)[0])
+	if err != nil {
+		return nil, fmt.Errorf("node pin %q: %w", vars["node"], err)
+	}
+	vars["node.major"] = strconv.Itoa(major)
+	vars["node.major+1"] = strconv.Itoa(major + 1)
+	vars["node.major+2"] = strconv.Itoa(major + 2)
+	vars["node.major-2"] = strconv.Itoa(major - 2)
+	return vars, nil
+}
+
+// expand replaces {name} placeholders with values from vars; unknown names are kept so a
+// typo makes the scenario's text search fail loudly.
+func expand(s string, vars map[string]string) string {
+	return regexp.MustCompile(`\{([a-z.+-]+[0-9]*)\}`).ReplaceAllStringFunc(s, func(m string) string {
+		if v, ok := vars[m[1:len(m)-1]]; ok {
+			return v
+		}
+		return m
+	})
+}
+
+// nextPatch returns X.Y.(Z+1) for X.Y.Z.
+func nextPatch(v string) string {
+	i := strings.LastIndex(v, ".")
+	n, err := strconv.Atoi(v[i+1:])
+	if i < 0 || err != nil {
+		return v + ".1"
+	}
+	return v[:i+1] + strconv.Itoa(n+1)
 }
 
 // match requires at least min matches of re's first group in file, all equal to want.
