@@ -82,32 +82,34 @@ func CheckWorkflow(name string, src []byte) []Finding {
 		if m == nil {
 			continue
 		}
-		// Block content must be indented deeper than the `run` key itself; a sibling key
-		// such as `env:` (same column as `run`) ends the block.
+		// Continuation lines must be indented deeper than the `run` key itself; a sibling
+		// key such as `env:` (same column as `run`) ends the value.
 		indent := strings.Index(line, "run:")
 		rest := strings.TrimSpace(m[2])
-		var script string
-		if strings.HasPrefix(rest, "|") || strings.HasPrefix(rest, ">") {
-			var body []string
-			j := i + 1
-			for ; j < len(lines); j++ {
-				l := lines[j]
-				if strings.TrimSpace(l) == "" {
-					body = append(body, "")
-					continue
-				}
-				if leading(l) <= indent {
-					break
-				}
-				body = append(body, l)
+		keyLine := i + 1
+		var body []string
+		j := i + 1
+		for ; j < len(lines); j++ {
+			l := lines[j]
+			if strings.TrimSpace(l) != "" && leading(l) <= indent {
+				break
 			}
-			script = strings.Join(body, "\n")
-			out = append(out, CheckScript(name, i+1, script)...)
-			i = j - 1
-			continue
+			body = append(body, l)
 		}
-		script = unquote(rest)
-		out = append(out, CheckScript(name, i+1, script)...)
+		i = j - 1
+		// Each reading Actions may execute is checked, and a finding from any of them
+		// counts (NFR-SEC-015 AC5): literal lines for `|`, lines joined by spaces for a
+		// folded `>` block and for multi-line plain or quoted scalars.
+		var readings []string
+		switch {
+		case strings.HasPrefix(rest, "|"):
+			readings = []string{strings.Join(body, "\n")}
+		case strings.HasPrefix(rest, ">"):
+			readings = []string{strings.Join(body, "\n"), foldLines(body)}
+		default:
+			readings = []string{unquote(strings.TrimSpace(stripComment(rest) + " " + foldLines(body)))}
+		}
+		out = append(out, dedupe(readings, func(script string) []Finding { return CheckScript(name, keyLine, script) })...)
 	}
 	return out
 }
@@ -233,6 +235,34 @@ func stripShellComments(script string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// foldLines joins the non-blank lines of a YAML scalar with single spaces, as YAML
+// folding does for lines at the same indentation. It is used as an extra reading, so
+// over-joining (more-indented lines YAML would keep) can only add findings.
+func foldLines(lines []string) string {
+	var parts []string
+	for _, l := range lines {
+		if t := strings.TrimSpace(l); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// dedupe runs check on every reading and returns each distinct finding once.
+func dedupe(readings []string, check func(string) []Finding) []Finding {
+	var out []Finding
+	seen := map[string]bool{}
+	for _, r := range readings {
+		for _, f := range check(r) {
+			if k := f.Rule + "\x00" + f.Message; !seen[k] {
+				seen[k] = true
+				out = append(out, f)
+			}
+		}
+	}
+	return out
 }
 
 func leading(s string) int { return len(s) - len(strings.TrimLeft(s, " \t")) }

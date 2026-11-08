@@ -152,6 +152,30 @@ jobs:
 	}
 }
 
+// YAML folding (Codex review on PR #14): what Actions executes is checked.
+func TestCheckWorkflowFoldedScalars(t *testing.T) {
+	cases := []struct {
+		name, yaml string
+		want       []string
+	}{
+		{"folded block", "jobs:\n  a:\n    steps:\n      - run: >-\n          go run\n          golang.org/x/vuln/cmd/govulncheck@latest ./...\n", []string{RuleGoToolUnpinned}},
+		{"folded keep", "jobs:\n  a:\n    steps:\n      - run: >+\n          go install\n          github.com/x/y@main\n\n", []string{RuleGoToolUnpinned}},
+		{"plain multi-line", "jobs:\n  a:\n    steps:\n      - run: go run\n          golang.org/x/vuln/cmd/govulncheck@latest\n        env:\n          A: b\n", []string{RuleGoToolUnpinned}},
+		{"quoted multi-line", "jobs:\n  a:\n    steps:\n      - run: 'go install\n          github.com/x/y@main'\n", []string{RuleGoToolUnpinned}},
+		{"literal keeps lines", "jobs:\n  a:\n    steps:\n      - run: |\n          go run ./cmd/dv\n          echo golang.org/x/vuln/cmd/govulncheck@latest\n", nil},
+		{"folded both readings dedupe", "jobs:\n  a:\n    steps:\n      - run: >\n          go run golang.org/x/vuln/cmd/govulncheck@latest\n", []string{RuleGoToolUnpinned}},
+		{"plain pinned with comment", "jobs:\n  a:\n    steps:\n      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 # pinned\n", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rules(CheckWorkflow("w.yml", []byte(tc.yaml)))
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCheckWorkflowCRLF(t *testing.T) {
 	src := "steps:\r\n  - run: |\r\n      curl -fL https://x | sh\r\n"
 	if got := rules(CheckWorkflow("w.yml", []byte(src))); len(got) != 2 {
