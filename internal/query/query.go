@@ -18,7 +18,6 @@ import (
 	"github.com/yesoreyeram/dv/internal/frame"
 	"github.com/yesoreyeram/dv/internal/fsroot"
 	"github.com/yesoreyeram/dv/internal/plugin"
-	"github.com/yesoreyeram/dv/internal/plugins/csvformat"
 	"github.com/yesoreyeram/dv/internal/plugins/filesource"
 )
 
@@ -332,10 +331,10 @@ func mapError(parent, qctx context.Context, err error) Result {
 		return failure(413, "too_large", err.Error())
 	case errors.Is(err, filesource.ErrUnsupportedFormat):
 		return failure(415, "unsupported_format", err.Error())
-	case errors.Is(err, csvformat.ErrDecode):
+	case errors.Is(err, plugin.ErrDecode):
 		return failure(422, "decode_failed", err.Error())
 	case errors.Is(err, fsroot.ErrInvalidPath), errors.Is(err, fsroot.ErrNotRegular),
-		errors.Is(err, fsroot.ErrUnknownRoot), errors.Is(err, csvformat.ErrOptions),
+		errors.Is(err, fsroot.ErrUnknownRoot), errors.Is(err, plugin.ErrOptions),
 		errors.Is(err, filesource.ErrInvalidQuery), errors.Is(err, filesource.ErrInvalidConfig):
 		return failure(400, "invalid_query", err.Error())
 	}
