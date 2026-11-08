@@ -227,7 +227,9 @@ only some fail) so panels can render partial results.
 - AC4: query errors map to stable codes and statuses (B-040): unknown datasource uid →
   `404 datasource_not_found`; invalid path / query / source settings → `400 invalid_query`;
   file not found → `404 not_found`; not a regular file → `400 invalid_query`; file too
-  large → `413 too_large`; unsupported format → `415 unsupported_format`; per-query
+  large → `413 too_large`; unsupported format → `415 unsupported_format`; invalid format
+  options (e.g. a two-character delimiter) → `400 invalid_query`; file content the format
+  cannot decode (wrong column count, empty input) → `422 decode_failed`; per-query
   deadline → `504 timeout`; client gone → `499 cancelled`; anything else → `500
   query_failed` with a generic message (details only in the server log with the request ID).
 - AC5: each query runs with its own deadline (`queryTimeout`, default 30 s,

@@ -56,7 +56,15 @@ Feature: Query API over provisioned data sources
       | files   | .env          | x.csv      | a       | 400    | invalid_query        |
       | files   | missing.csv   | x.csv      | a       | 404    | not_found            |
       | files   | notes.txt     | notes.txt  | hello   | 415    | unsupported_format   |
-      | files   | sub           | sub/a.csv  | a       | 400    | invalid_query        |
+      | files   | dir.csv       | dir.csv/a.csv | a    | 400    | invalid_query        |
+      | files   | bad.csv       | bad.csv    | a,b\n1   | 422    | decode_failed        |
+      | files   | empty.csv     | empty.csv  |         | 422    | decode_failed        |
+
+  Scenario: Invalid format options are a client error
+    Given the query API is enabled
+    When I query "files" with refId "A" and the query body {"path":"sales.csv","options":{"delimiter":";;"}}
+    Then the response status should be 400
+    And result "A" has status 400 and error code "invalid_query"
 
   Scenario: A file over the size limit is 413
     Given the query API is enabled
