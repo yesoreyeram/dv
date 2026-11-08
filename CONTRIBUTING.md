@@ -18,6 +18,20 @@
 5. **Open a PR** that lists the FR/NFR IDs, security considerations, test evidence,
    screenshots (`docs/screenshots/<branch>/`) and follow-ups, and updates
    `docs/RUNLOG.md` and `docs/BACKLOG.md`.
+6. **Merging.** PRs target `main` and merge automatically (squash) once the `CI` workflow
+   is green for the PR's current head commit and the author is allow-listed
+   ([`automerge.yml`](.github/workflows/automerge.yml), NFR-MAINT-006). Add the `hold`
+   label to keep a PR open for review. Do not stack PRs on feature branches: a PR whose
+   base branch merged first never reaches `main` (this happened to PR #5). If you must
+   stack, retarget the child to `main` as soon as the parent merges.
+
+## Toolchain
+
+[`mise.toml`](mise.toml) pins Go, Node (LTS), pnpm and golangci-lint. With
+[mise](https://mise.jdx.dev) installed, `mise install` sets them up; `make check-toolchain`
+(also in CI) fails when `mise.toml`, `go.mod`, `package.json`, the Dockerfile and CI
+disagree (NFR-MAINT-007). Dependabot updates Go modules, npm packages, GitHub Actions and
+Docker images (grouped, weekly); Renovate updates only `mise.toml` (NFR-MAINT-008).
 
 ## Standards
 

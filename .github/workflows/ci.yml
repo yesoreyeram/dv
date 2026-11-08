@@ -71,6 +71,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Toolchain pins consistent (NFR-MAINT-007)
+        run: ./scripts/check-toolchain.sh
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format:check
       - run: pnpm -r run lint

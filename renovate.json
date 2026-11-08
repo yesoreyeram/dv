@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate covers only what Dependabot cannot (mise.toml); Dependabot owns Go, npm, Actions and Docker (NFR-MAINT-008). Inert until the Renovate GitHub App is installed.",
+  "extends": ["config:recommended", ":semanticCommitTypeAll(chore)"],
+  "enabledManagers": ["mise"],
+  "labels": ["dependencies", "toolchain"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "UTC",
+  "prConcurrentLimit": 2,
+  "dependencyDashboard": false,
+  "packageRules": [
+    {
+      "description": "One PR for all toolchain bumps",
+      "matchManagers": ["mise"],
+      "groupName": "toolchain"
+    },
+    {
+      "description": "Node: LTS (even) majors only",
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["node"],
+      "allowedVersions": "/^\\d*[02468]\\./"
+    }
+  ]
+}

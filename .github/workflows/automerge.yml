@@ -1,0 +1,52 @@
+# Merges a pull request once the CI workflow is green for its current head (NFR-MAINT-006).
+#
+# Security (threat model F-09):
+# - `workflow_run` always runs this file and the bot from the default branch, so a pull
+#   request cannot change what merges it; the checkout below is the default branch,
+#   never the PR head, and no PR code runs.
+# - Token scoped to merging only; every rule lives in internal/automerge (unit + BDD tested).
+# - The bot re-checks every check run on the head SHA and pins the merge to that SHA.
+#
+# Owner settings: repository variable DV_AUTOMERGE_AUTHORS overrides the allow-list,
+# DV_AUTOMERGE_DRY_RUN=true logs decisions without merging. Add the `hold` label to any
+# PR to keep it open.
+name: Automerge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge when CI is green
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Decide and merge
+        run: go run ./cmd/dv-automerge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DV_AUTOMERGE_AUTHORS: ${{ vars.DV_AUTOMERGE_AUTHORS || 'yesoreyeram,dependabot[bot]' }}
+          DV_AUTOMERGE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DV_AUTOMERGE_METHOD: squash
+          DV_AUTOMERGE_DRY_RUN: ${{ vars.DV_AUTOMERGE_DRY_RUN || 'false' }}

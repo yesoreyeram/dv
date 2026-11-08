@@ -1,0 +1,12 @@
+# Toolchain pins (NFR-MAINT-007). `mise install` gives contributors the same versions CI
+# uses; keep in step with go.mod, package.json#packageManager, deploy/Dockerfile and
+# .github/workflows/ci.yml. Renovate's mise manager proposes updates.
+[tools]
+go = "1.24.7"
+node = "22.23.4"
+pnpm = "10.28.0"
+golangci-lint = "2.5.0"
+
+[env]
+# Keep go.sum honest and avoid silent toolchain downloads.
+GOTOOLCHAIN = "local"

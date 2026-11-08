@@ -43,8 +43,11 @@ dev: ## Run the API (go run) and the Vite dev server with HMR (proxying /api)
 	DV_API_URL=http://$(ADDR) pnpm --filter web run dev
 
 ## ---------- quality ----------
-.PHONY: lint lint-go lint-web fmt
-lint: lint-go lint-web ## Run all linters
+.PHONY: lint lint-go lint-web fmt check-toolchain
+lint: lint-go lint-web check-toolchain ## Run all linters
+
+check-toolchain: ## mise.toml, go.mod, package.json, Dockerfile and CI agree (NFR-MAINT-007)
+	./scripts/check-toolchain.sh
 
 lint-go: ## golangci-lint (includes gosec) + go vet
 	go vet ./...
