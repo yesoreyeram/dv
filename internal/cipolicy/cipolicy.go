@@ -1,6 +1,7 @@
 // Package cipolicy checks GitHub Actions workflow files against the CI supply-chain
-// policy (NFR-SEC-015): downloads are verified against a committed SHA-256, Go tools are
-// pinned to an exact version, and action references name a tag or a commit.
+// policy (NFR-SEC-015): files are downloaded only through scripts/fetch-verified.sh with
+// a committed SHA-256, Go tools are pinned to an exact version, and action references
+// name a tag or a commit.
 //
 // The checker is deliberately line based instead of a full YAML parser: it only needs
 // `run:` scripts and `uses:` values, works on the exact text a reviewer sees, and adds
@@ -40,9 +41,16 @@ var (
 	runKey  = regexp.MustCompile(`^(\s*)(?:-\s+)?run:\s*(.*)$`)
 	usesKey = regexp.MustCompile(`^\s*(?:-\s+)?uses:\s*(.*)$`)
 
-	downloadCmd = regexp.MustCompile(`(?:^|[\s;&|(])(curl|wget)\s`)
+	// Any downloader other than scripts/fetch-verified.sh (NFR-SEC-015 AC1). Matched as a
+	// word anywhere outside comments, so paths (/usr/bin/curl), `command curl` and text in
+	// heredocs are all caught; a false positive is preferred over a missed download.
+	downloadCmd = regexp.MustCompile(`(?:^|[^\w.-])(curl|wget|aria2c)(?:$|[^\w.-])|\bgh\s+release\s+download\b`)
 	// A download whose output goes through a pipe into a shell or an extractor.
-	pipedDownload = regexp.MustCompile(`(?:^|[\s;&(])(?:curl|wget)\s[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|tar|python3?|perl|unzip|gunzip|xz)\b`)
+	pipedDownload = regexp.MustCompile(`(?:^|[^\w.-])(?:curl|wget)\s[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|tar|python3?|perl|unzip|gunzip|xz)\b`)
+	// A call of the verifying helper and its arguments (up to the end of the command).
+	helperCall = regexp.MustCompile(`(?:^|[\s;&|(])(?:\./)?scripts/fetch-verified\.sh\b([^;&|\n]*)`)
+	httpsArg   = regexp.MustCompile(`^https://\S+$`)
+	sha256Arg  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\s+((?:-\S+\s+)*)(\S+)`)
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -103,19 +111,31 @@ func CheckWorkflow(name string, src []byte) []Finding {
 
 // CheckScript checks the shell script of a single `run:` step that starts at line.
 func CheckScript(name string, line int, script string) []Finding {
-	// Drop shell comments first: a commented-out command never downloads, binds a hash
-	// or verifies anything. Then join line continuations so a command split over lines
-	// is seen whole.
+	// Drop shell comments first: a commented-out command never downloads anything. Then
+	// join line continuations so a command split over lines is seen whole.
 	joined := strings.ReplaceAll(stripShellComments(script), "\\\n", " ")
 	var out []Finding
 	add := func(rule, msg string) {
 		out = append(out, Finding{File: name, Line: line, Rule: rule, Message: msg})
 	}
 	if pipedDownload.MatchString(joined) {
-		add(RuleDownloadPiped, "a download is piped straight into a shell or extractor; save it to a file and verify its SHA-256 first")
+		add(RuleDownloadPiped, "a download is piped straight into a shell or extractor; use scripts/fetch-verified.sh <https-url> <sha256> <output>")
 	}
-	for _, msg := range unverifiedDownloads(joined) {
-		add(RuleDownloadUnverified, msg)
+	for _, m := range downloadCmd.FindAllStringSubmatch(joined, -1) {
+		tool := m[1]
+		if tool == "" {
+			tool = "gh release download"
+		}
+		add(RuleDownloadUnverified, tool+" is not allowed in workflows; download with scripts/fetch-verified.sh <https-url> <sha256> <output>, which verifies before writing")
+	}
+	for _, m := range helperCall.FindAllStringSubmatch(joined, -1) {
+		args := strings.Fields(m[1])
+		for i := range args {
+			args[i] = unquote(args[i])
+		}
+		if len(args) != 3 || !httpsArg.MatchString(args[0]) || !sha256Arg.MatchString(args[1]) {
+			add(RuleDownloadUnverified, fmt.Sprintf("scripts/fetch-verified.sh needs <https-url> <sha256> <output> with the SHA-256 as a committed 64-hex literal, got %q", strings.TrimSpace(m[1])))
+		}
 	}
 	for _, m := range goTool.FindAllStringSubmatch(joined, -1) {
 		target := unquote(m[2])
@@ -129,220 +149,6 @@ func CheckScript(name string, line int, script string) []Finding {
 		if v := target[at+1:]; !exactSemv.MatchString(v) {
 			add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
 		}
-	}
-	return out
-}
-
-// segmentSep splits a script into commands; pipes stay inside one command so that
-// `echo "<sha>  file" | sha256sum -c -` is a single verification command.
-var segmentSep = regexp.MustCompile(`\n|;|&&|\|\|`)
-
-// segment is one command of a script with the list operators around it ("" for a line
-// break, `;` or the start/end of the script).
-type segment struct {
-	text, before, after string
-	// nested is true inside any compound command (if/case/loops/functions/subshells/
-	// brace groups), where a check may not run; errexitOff after `set +e`, where a failed
-	// check does not stop the step.
-	nested, errexitOff bool
-}
-
-func splitSegments(script string) []segment {
-	idx := segmentSep.FindAllStringIndex(script, -1)
-	op := func(k int) string {
-		if k < 0 || k >= len(idx) {
-			return ""
-		}
-		if o := script[idx[k][0]:idx[k][1]]; o == "&&" || o == "||" {
-			return o
-		}
-		return ""
-	}
-	var out []segment
-	prev := 0
-	for k := 0; k <= len(idx); k++ {
-		end := len(script)
-		if k < len(idx) {
-			end = idx[k][0]
-		}
-		out = append(out, segment{text: script[prev:end], before: op(k - 1), after: op(k)})
-		if k < len(idx) {
-			prev = idx[k][1]
-		}
-	}
-	markControlFlow(out)
-	return out
-}
-
-var (
-	openers   = map[string]bool{"if": true, "case": true, "while": true, "until": true, "for": true, "select": true, "function": true, "{": true, "(": true}
-	closers   = map[string]bool{"fi": true, "esac": true, "done": true, "}": true, ")": true}
-	inners    = map[string]bool{"then": true, "do": true, "else": true, "elif": true}
-	funcDef   = regexp.MustCompile(`^[A-Za-z_][\w-]*\s*\(\s*\)`)
-	errexitOn = regexp.MustCompile(`^set\s+(?:-e\b|-o\s+errexit\b|-[a-zA-Z]*e[a-zA-Z]*\b)`)
-	errexitNo = regexp.MustCompile(`^set\s+(?:\+e\b|\+o\s+errexit\b|\+[a-zA-Z]*e[a-zA-Z]*\b)`)
-)
-
-// markControlFlow sets nested and errexitOff conservatively from each command's first
-// word: openers raise the depth, closers lower it, and anything at depth > 0 (or a
-// then/do/else branch) counts as nested. It errs towards "nested", which only ever
-// rejects a verification.
-func markControlFlow(segs []segment) {
-	depth, off := 0, false
-	for i := range segs {
-		t := strings.TrimSpace(segs[i].text)
-		first := t
-		if f := strings.Fields(t); len(f) > 0 {
-			first = f[0]
-		}
-		switch {
-		case errexitNo.MatchString(t):
-			off = true
-		case errexitOn.MatchString(t):
-			off = false
-		}
-		segs[i].errexitOff = off
-		switch {
-		case closers[first] || strings.HasPrefix(first, "}") || strings.HasPrefix(first, ")"):
-			if depth > 0 {
-				depth--
-			}
-			segs[i].nested = true
-		case openers[first] || strings.HasPrefix(first, "(") || strings.HasPrefix(first, "{") || funcDef.MatchString(t):
-			depth++
-			segs[i].nested = true
-		default:
-			segs[i].nested = depth > 0 || inners[first]
-		}
-	}
-}
-
-// checkCmd is the only accepted verification form (NFR-SEC-015 AC1): the hash line is
-// piped straight into the checksum tool reading stdin, as one standalone command, so the
-// hash cannot be separated from the check (a manifest file can be swapped or ignored).
-var checkCmd = regexp.MustCompile(`^\s*(?:echo|printf)\s([^|<>` + "`" + `$]*)\|\s*(?:sha256sum|shasum\s+-a\s*256)\s+(?:-c|--check)(?:\s+-)?\s*$`)
-
-// verifies reports whether seg is a standalone checksum command whose piped input binds
-// file to a committed SHA-256.
-func verifies(seg segment, file string) bool {
-	if seg.nested || seg.errexitOff || seg.before != "" || seg.after == "||" {
-		return false // conditional: `x && check`, `x || check`, `check || true`
-	}
-	m := checkCmd.FindStringSubmatch(seg.text)
-	if m == nil {
-		return false
-	}
-	bind := regexp.MustCompile(`\b[0-9a-f]{64}['"]?\s+['"]?\*?` + regexp.QuoteMeta(file) + `(?:$|[\s"'\\])`)
-	return bind.MatchString(m[1])
-}
-
-// unverifiedDownloads applies NFR-SEC-015 AC1 per downloaded file: after the download,
-// a standalone `echo "<sha256>  <file>" | sha256sum -c -` must come before any other
-// command that mentions the file. A piped download has no output file, so it is
-// reported here as well as by RuleDownloadPiped.
-func unverifiedDownloads(script string) []string {
-	segs := splitSegments(script)
-	var out []string
-	for i, seg := range segs {
-		if !downloadCmd.MatchString(seg.text) {
-			continue
-		}
-		file := downloadTarget(seg.text)
-		if file == "" {
-			out = append(out, "cannot tell which output file a download writes; save it with -o <file> and verify that file's SHA-256 (sha256sum -c)")
-			continue
-		}
-		mention := regexp.MustCompile(`(?:^|[\s"'/=])` + regexp.QuoteMeta(file) + `(?:$|[\s"';|&)\\])`)
-		verified := false
-		for _, later := range segs[i+1:] {
-			if verifies(later, file) {
-				verified = true
-				break
-			}
-			if mention.MatchString(later.text) {
-				break // used (extracted, run, moved, put in a manifest) before it was verified
-			}
-		}
-		if !verified {
-			out = append(out, fmt.Sprintf("downloaded file %q is not verified before it is used; add the standalone command: echo \"<sha256>  %s\" | sha256sum -c -", file, file))
-		}
-	}
-	return out
-}
-
-// downloadTarget returns the file a curl/wget command writes, or "" when it writes to
-// stdout or cannot be determined.
-func downloadTarget(seg string) string {
-	f := strings.Fields(seg)
-	tool, start := "", -1
-	for i, t := range f {
-		if t == "curl" || t == "wget" {
-			tool, start = t, i
-			break
-		}
-	}
-	if start < 0 {
-		return ""
-	}
-	var url, out string
-	remote := tool == "wget" // wget saves under the URL's name unless told otherwise
-	for i := start + 1; i < len(f); i++ {
-		t := unquote(f[i])
-		next := func() string {
-			if i+1 < len(f) {
-				i++
-				return unquote(f[i])
-			}
-			return ""
-		}
-		switch {
-		case t == ">" || t == ">>":
-			out = next()
-		case strings.HasPrefix(t, ">"):
-			out = strings.TrimLeft(t, ">")
-		case t == "--output" || t == "--output-document":
-			out = next()
-		case strings.HasPrefix(t, "--output=") || strings.HasPrefix(t, "--output-document="):
-			out = t[strings.Index(t, "=")+1:]
-		case t == "--remote-name" || t == "--remote-name-all":
-			remote = true
-		case strings.Contains(t, "://"):
-			if url == "" {
-				url = t
-			}
-		case strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && len(t) > 1:
-			flags := t[1:]
-			// Short-option clusters: the value flag is last (-sSfLo file), or its value
-			// is attached (-ofile, -O-).
-			if tool == "curl" {
-				if k := strings.IndexByte(flags, 'o'); k >= 0 {
-					if k == len(flags)-1 {
-						out = next()
-					} else {
-						out = flags[k+1:]
-					}
-				} else if strings.ContainsRune(flags, 'O') {
-					remote = true
-				}
-			} else if k := strings.IndexByte(flags, 'O'); k >= 0 {
-				if k == len(flags)-1 {
-					out = next()
-				} else {
-					out = flags[k+1:]
-				}
-			}
-		}
-	}
-	if out == "-" {
-		out = ""
-		remote = false
-	}
-	if out == "" && remote && url != "" {
-		u := url
-		if q := strings.IndexAny(u, "?#"); q >= 0 {
-			u = u[:q]
-		}
-		out = u[strings.LastIndex(u, "/")+1:]
 	}
 	return out
 }
