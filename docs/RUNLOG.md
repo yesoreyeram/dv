@@ -224,3 +224,11 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Not verified locally: govulncheck, gitleaks, Docker build (CI's job). One full `go test -race ./...` run showed a `test/bdd` failure that 5 reruns did not reproduce (B-061).
 - Owner actions needed: review/merge #14; close #7; optionally enable "Allow auto-merge" (B-054). Then the next run opens the `feat/query-api` PR.
 - Next: open the `feat/query-api` PR after #14 merges; then B-015 Explore page on top of it, B-013 JSON, B-050, B-060.
+
+## 2026-11-08 ~18:35–18:50 UTC — B-062 folded into `feat/query-api` (no new PR: other PRs are open)
+- Triage: [PR #14](https://github.com/yesoreyeram/dv/pull/14) unchanged: `clean`, all 8 checks green at 70cd659, all review threads resolved, Codex reports no findings. Dependabot #6–#13 open; no open issues; `main` at 7182acb. Remote `feat/*` branches checked first (`git ls-remote`), so no duplicate work this time.
+- Market check: Grafana bounds results per data source response (`response_limit`), per SQL query (row limit) and per SQL-expression input (cell limit), but nothing bounds a whole multi-query request. This run makes the byte limit request-wide.
+- Shipped on branch **`feat/query-api`** (not a PR yet): B-062. `queryMaxBytes` is now one budget per request (FR-016 AC9, NFR-PERF-003 AC2, F-10 threat row). Each query reserves `remaining / queries not yet started` and returns what it did not use; with nothing left a query answers `413 budget_exhausted` without running; byte-truncated frames carry a notice naming the request budget. Requirements and scenarios were committed before code.
+- Evidence: `go test -race ./...` all ok (query 100 % coverage); godog query suite 44/44 including 2 new scenarios; negative control (per-query limits restored) fails both scenarios and two unit tests; golangci-lint 0 issues; Prettier clean. Live: with `DV_QUERY_MAX_BYTES=50000`, 1 query → 400 rows, 2 queries → 25 000 bytes each, 6 queries → ≈8 333 bytes each (`docs/screenshots/feat-query-api/03-request-byte-budget.png`).
+- Owner actions: review/merge #14; close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next: after #14 merges, open the `feat/query-api` PR (now including B-062); then B-015 Explore page, B-013 JSON, B-050.
