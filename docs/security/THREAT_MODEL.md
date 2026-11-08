@@ -133,6 +133,15 @@ written by anyone who can open a PR (including Dependabot and, for public repos,
 | T | One toolchain declaration drifts (CI on Node 22 while the image builds with 26), so what CI tested is not what ships | `check-toolchain.sh` compares every declaration with `mise.toml` and fails CI; each rule has a scenario that changes one file in a copy of the repo (AC5). | `toolchain.feature` |
 | E | A malformed workflow expression or shell bug in `run:` widens what a step does (e.g. untrusted `${{ }}` interpolation into a script) | `actionlint` + shellcheck on every PR, including its script-injection check (AC4). | CI `Workflow lint (actionlint)` job |
 
+## F-11 Explore page and table panel (FR-013, FR-018)
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T | File content (cell values, field names, notices, error messages) carries markup or script that the browser executes | Everything is rendered as React text, no `dangerouslySetInnerHTML`; CSP forbids inline script; frames are validated by `decodeFrame` before rendering | `TablePanel.test.tsx`, `explore.feature` |
+| I | Query state in the URL leaks something sensitive | Only the data-source uid, path, format and row limit are in the URL; no credentials exist (FR-017 refuses `secureJsonData`) | Review, `ExplorePage.test.tsx` |
+| S/T | A link opened from elsewhere runs a query the user did not intend | URL state only fills the form; a query runs only when the user presses Run (FR-018 AC6); cross-site and rebinding requests are refused server-side (NFR-SEC-017) | `ExplorePage.test.tsx` |
+| D | A huge frame freezes the tab | Server row/byte limits (NFR-PERF-003); the table renders one 50-row page at a time (NFR-PERF-005); requests can be cancelled | `TablePanel.test.tsx` |
+
 ## F-10 Query API and provisioned data sources (FR-016, FR-017, NFR-SEC-016, NFR-PERF-003)
 
 Data flow: operator config `datasources[]` → validated by each plugin at start-up →

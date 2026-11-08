@@ -30,7 +30,8 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-016 | Query API (`POST /api/v1/query`) | M | M2 | In progress |
 | FR-017 | Provisioned data-source instances | M | M2 | In progress |
 | FR-012 | JSON file source | M | M2 | Planned |
-| FR-013 | Table panel | M | M2 | Planned |
+| FR-013 | Table panel | M | M2 | In progress |
+| FR-018 | Explore page (ad-hoc query against a provisioned source) | M | M2 | In progress |
 | FR-014 | Time-series line chart panel | M | M2 | Planned |
 | FR-020 | Local user accounts & sessions | M | M3 | Planned |
 | FR-021 | Role-based access control (Viewer / Editor / Admin) | M | M3 | Planned |
@@ -271,11 +272,61 @@ config file so the query API is usable.
   (`jsonData`) are not returned (least disclosure until RBAC). It follows the same
   `queryApiEnabled` gate as FR-016.
 
+### FR-013 — Table panel (M)
+Renders one data frame (FR-010 wire format, decoded and validated by `decodeFrame`) as an
+accessible table. Market baseline: the table visualizations of Grafana, Datadog, Power BI,
+New Relic and Looker all offer typed, locale-aware cells, sortable headers, paging or
+virtualization for large results, and a visible "results truncated" signal.
+- AC1: a semantic `<table>` with a `<caption>` naming the frame and its row count, and one
+  `<th scope="col">` per field showing `config.displayName` (else the field name) and the
+  field type; cells are rendered as text, never as HTML.
+- AC2: cells are formatted with `Intl` in the browser locale and time zone (NFR-I18N-002):
+  `time` with date and time (the ISO 8601 UTC value is kept in `<time dateTime>`), `number`
+  with `Intl.NumberFormat` honouring `config.decimals` and appending `config.unit`, `bool`
+  as `true`/`false`, `json` as compact JSON cut at 200 characters. `null` shows `—` with an
+  accessible "empty" label. Numbers and times are right-aligned.
+- AC3: every header is a button that cycles ascending → descending → unsorted, with
+  `aria-sort` on the header. Sorting is stable, puts nulls last in both directions,
+  compares numbers and times numerically, bools false-before-true and strings with
+  `Intl.Collator` (numeric). The frame itself is never mutated.
+- AC4: 50 rows per page with Previous/Next buttons and a "Rows x–y of n" status; only the
+  current page is in the DOM, so a 100 000-row frame stays responsive (NFR-PERF-005).
+- AC5: a frame with no rows shows "No rows"; a frame with no fields shows "No fields".
+- AC6: frame notices (FR-010) and `meta.truncated` are shown above the table as alerts.
+- AC7: the table sits in a horizontally scrollable region that is keyboard focusable and
+  labelled (WCAG 2.1.1).
+
+### FR-018 — Explore page (M)
+`/explore` runs one ad-hoc query against a provisioned data source (FR-017) through the
+query API (FR-016) and shows the frames in the table panel. Market baseline: Grafana
+Explore, the Datadog and New Relic query builders and Looker Explore all put a data-source
+picker, the query, a Run action with a keyboard shortcut and result statistics on one
+screen, and keep the query in the URL so a view can be bookmarked and shared.
+- AC1: data sources come from `GET /api/v1/datasources` into a labelled select; the first
+  is preselected. When the endpoint answers `404` the page explains that the query API is
+  off and how an operator enables it (`DV_QUERY_API_ENABLED`, loopback only until M3) and
+  shows no form; an empty list says no data sources are provisioned.
+- AC2: the file-source query form has a required path, a format (`Automatic` or one of the
+  formats in the plugin catalogue) and an optional row limit (whole number 1–100 000).
+  Invalid input is reported inline (`aria-invalid`, `aria-describedby`) and nothing is sent.
+- AC3: Run (button, or Ctrl/⌘+Enter in the form) sends one same-origin `POST
+  /api/v1/query` with `refId` `A`; while it runs the button is disabled and a Cancel button
+  aborts the request.
+- AC4: on success the page shows each frame in the table panel (a tab per frame when there
+  are several) and a statistics line: rows, fields, client-measured duration, and the
+  executed query.
+- AC5: a failed query (per-query error or request-level error envelope) shows its error
+  code and message in an alert (`role="alert"`), as text; a response that is not valid JSON
+  or not a valid frame shows a generic decode error.
+- AC6: the data source, path, format and row limit are kept in the URL query string
+  (`?ds=&path=&format=&maxRows=`) and restored on load; an unknown `ds` falls back to the
+  first data source. The query only runs when the user presses Run.
+
 ### FR-012 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
 (see `docs/BACKLOG.md`). Draft intent:
 - **FR-012** JSON files through the same `file` source and the FR-011 path/size controls; type inference with explicit overrides.
-- **FR-013/014** Panels render frames; line chart needs one time field and ≥1 numeric field.
+- **FR-014** Line chart needs one time field and ≥1 numeric field.
 - **FR-020/021** Argon2id-hashed passwords, server-side sessions, CSRF protection; RBAC enforced server-side on every endpoint.
 - **FR-022** Secrets encrypted with AES-256-GCM envelope encryption; write-only through the API.
 - **FR-030–033** Parameterized queries only; per-source read-only credentials recommended; statement timeouts and row limits.

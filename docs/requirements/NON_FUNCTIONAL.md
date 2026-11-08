@@ -33,6 +33,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | NFR-PERF-002 | Stateless API nodes; horizontal scaling behind a load balancer (state in DB/cache). | M | Architecture (ADR-0001) | In progress |
 | NFR-PERF-003 | Query execution is streaming/bounded: row and byte limits per query, configurable. The byte limit must not under-estimate retained memory by more than 1.6×, and sources apply safe default limits when a query sets none. **AC1 (host limits):** `queryMaxRows`/`queryMaxBytes` in config (must be > 0) are passed to every source as defaults and applied by the query API to every query; a query may only lower them (FR-016 AC6). **AC2 (per-request budget):** the byte limit is a budget shared by all queries of one query-API request, so retained result memory per request is bounded by `queryMaxBytes` (× the ≤1.6× estimate error), not by `queries × queryMaxBytes` (FR-016 AC9). | M | Tests; `query.feature` | In progress (frame builder limits, host limits) |
 | NFR-PERF-004 | Initial UI JS bundle ≤ 250 KB gzip; routes code-split as they grow. **AC1:** after `vite build`, the gzip size of every script `index.html` loads up front (entry `<script type="module">` plus `<link rel="modulepreload">`) is summed, and the build fails if it exceeds 250 KB (256 000 bytes); the check also fails if no initial script is found, so a broken build cannot pass vacuously. **AC2:** initial CSS is reported (budget 50 KB gzip) and enforced the same way. | S | `pnpm --filter web run size` in CI after the build | In progress |
+| NFR-PERF-005 | Large result frames stay responsive in the browser. **AC1:** the table panel renders only the current page of rows, so the DOM never holds more than 50 data rows whatever the frame size. **AC2:** sorting a 100 000-row numeric column completes in under 500 ms in the unit-test environment (jsdom, single core). | S | Vitest | In progress |
 
 ## Availability & resilience (AVAIL)
 
@@ -65,7 +66,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | ID | Requirement | Priority | Verification | Status |
 | --- | --- | --- | --- | --- |
 | NFR-I18N-001 | All user-facing strings live in message catalogs (no hard-coded copy in components); English is the default locale. | S | Lint/review | In progress (catalog seam in M0) |
-| NFR-I18N-002 | Numbers, dates and times are formatted with `Intl` using the user locale and time zone; timestamps stored/transported in UTC (RFC 3339). | M | Tests | Planned (M2) |
+| NFR-I18N-002 | Numbers, dates and times are formatted with `Intl` using the user locale and time zone; timestamps stored/transported in UTC (RFC 3339). | M | Tests | In progress (table panel, FR-013) |
 | NFR-I18N-003 | Layout supports RTL (`dir` attribute, logical CSS properties). | C | Review | Planned |
 
 ## Compliance & audit (AUD)
