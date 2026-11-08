@@ -75,3 +75,21 @@ Feature: Explore data from a provisioned source
     And I press Run
     Then the rows path field is marked invalid
     And no result is shown
+
+  @NFR-A11Y-005
+  Scenario: A wide result shows which edge hides columns and scrolls with the keyboard
+    Given the viewport is 390 by 844 pixels
+    And I open the app at "/explore?ds=samples&path=services.json&rowsPath=data.services&flatten=1"
+    When I press Run
+    Then the result table has 4 rows
+    And the result region shows hidden columns at the end only
+    And the page does not scroll sideways
+    When I scroll the result region to the end with the keyboard
+    Then the result region shows hidden columns at the start only
+    And the page has no serious or critical accessibility violations
+
+  @NFR-A11Y-005
+  Scenario: A narrow result shows no edge indicator
+    Given I open the app at "/explore?ds=samples&path=hosts.tsv"
+    When I press Run
+    Then the result region shows no hidden columns

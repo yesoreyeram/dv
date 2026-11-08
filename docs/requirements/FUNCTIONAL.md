@@ -101,6 +101,13 @@ A React single-page application provides the product frame.
 - AC4: light/dark theme toggle; initial theme follows `prefers-color-scheme`; choice persists per browser.
 - AC5: unknown routes render a "Page not found" view with a link home.
 - AC6: features not yet built show an explicit "planned for milestone Mx" empty state — never fake data.
+- AC7: below the `md` breakpoint the navigation is one horizontally scrolling row. On load
+  and on every route change the current page link is scrolled fully into view inside that
+  row (the page itself never scrolls sideways), and a fade at the start or end edge shows
+  when more links are hidden in that direction (logical edges, so RTL is mirrored). The
+  fades are decorative (`aria-hidden`) and give way to a solid edge line in forced-colors
+  mode. Market baseline: the mobile tab bars of Grafana, Datadog and New Relic keep the
+  selected tab visible and fade the clipped edge (B-050).
 
 ### FR-006 — System status view (S)
 The Home page shows server liveness/readiness and build version, fetched via TanStack Query.
@@ -349,6 +356,12 @@ virtualization for large results, and a visible "results truncated" signal.
 - AC6: frame notices (FR-010) and `meta.truncated` are shown above the table as alerts.
 - AC7: the table sits in a horizontally scrollable region that is keyboard focusable and
   labelled (WCAG 2.1.1).
+- AC8: when the table is wider than its region, a fade on the edge(s) with hidden columns
+  shows that the region scrolls (start, end or both; logical edges for RTL), updated on
+  scroll, resize and new frames; it disappears once that edge is reached. The fades are
+  decorative (`aria-hidden`), never cover the focus outline, and become a solid edge line
+  in forced-colors mode. Arrow keys scroll the focused region (AC7). Market baseline:
+  Grafana, Datadog and Power BI tables all show clipped-column affordances (B-066).
 
 ### FR-018 — Explore page (M)
 `/explore` runs one ad-hoc query against a provisioned data source (FR-017) through the

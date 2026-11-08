@@ -57,6 +57,7 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 | I | Theme preference storage leaks data | Only `"light"`/`"dark"` stored in `localStorage`; reads wrapped in try/catch | `theme.test.tsx` |
 | D | Unbounded retries hammer the API | TanStack Query retry capped (2) with exponential backoff | `queryClient.ts` |
 | S | UI copy overstates protections (for example "credentials are encrypted at rest" before FR-022 ships), so an operator relies on a control that does not exist and stores real secrets in plaintext config | Copy describes shipped behaviour only; planned controls are named with their milestone (FR-015 AC7, NFR-AUD-004, B-049). A catalog-wide test rejects security/compliance claims without a planned-milestone marker unless allow-listed against a shipped requirement | `messages.test.ts`, `datasources.feature` |
+| D | Scroll-edge indicators (FR-005 AC7, FR-013 AC8) attach scroll and resize listeners that run per frame and slow a page holding a large table | Listeners are passive and coalesced into one `requestAnimationFrame` per frame; state only changes when an edge flag flips; `ResizeObserver` and listeners are removed on unmount; only the 50-row page is measured (NFR-PERF-005) | `useScrollEdges.test.tsx`, review |
 
 ## F-08 Data-frame model and plugin registry (FR-010, FR-015, NFR-PERF-003, NFR-SEC-002)
 
