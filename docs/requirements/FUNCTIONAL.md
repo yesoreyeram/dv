@@ -251,7 +251,9 @@ only some fail) so panels can render partial results.
   (`queryApiEnabled=false`, `DV_QUERY_API_ENABLED`): when off it answers `404` like any
   unknown route. When on, start-up fails unless `httpAddr` binds a loopback address, or the
   operator also sets `queryApiAllowRemote=true` (`DV_QUERY_API_ALLOW_REMOTE`), in which case
-  a warning is logged at start-up (NFR-SEC-016).
+  a warning is logged at start-up (NFR-SEC-016). Both endpoints also refuse non-loopback
+  `Host` values and cross-site browser requests (NFR-SEC-017), so DNS rebinding cannot turn
+  the loopback gate into a same-origin read for an arbitrary web page.
 - AC8: error messages never contain the operator's absolute paths (FR-011 AC9), and every
   executed query is logged with request ID, refId, datasource uid, type, status and duration,
   never the query result.
