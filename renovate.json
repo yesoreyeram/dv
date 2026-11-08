@@ -1,24 +1,59 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Renovate covers only what Dependabot cannot (mise.toml); Dependabot owns Go, npm, Actions and Docker (NFR-MAINT-008). Inert until the Renovate GitHub App is installed.",
+  "description": "Renovate owns the toolchain pins only: mise.toml plus the files that must match it (go.mod go directive, package.json packageManager, CI golangci-lint), all in one grouped PR so scripts/check-toolchain.sh stays green. Dependabot owns Go modules, npm, Actions and Docker (NFR-MAINT-008). Inert until the Renovate GitHub App is installed.",
   "extends": ["config:recommended", ":semanticCommitTypeAll(chore)"],
-  "enabledManagers": ["mise"],
+  "enabledManagers": ["mise", "custom.regex"],
   "labels": ["dependencies", "toolchain"],
   "schedule": ["before 6am on monday"],
   "timezone": "UTC",
   "prConcurrentLimit": 2,
   "dependencyDashboard": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "go.mod go directive follows mise.toml go",
+      "managerFilePatterns": ["/^go\\.mod$/"],
+      "matchStrings": ["(?m)^go (?<currentValue>\\d+\\.\\d+\\.\\d+)$"],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "golang-version"
+    },
+    {
+      "customType": "regex",
+      "description": "package.json packageManager follows mise.toml pnpm",
+      "managerFilePatterns": ["/^package\\.json$/"],
+      "matchStrings": ["\"packageManager\": \"pnpm@(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "pnpm",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "CI golangci-lint version follows mise.toml golangci-lint",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "golangci-lint-action@\\S+\\s+with:\\s+version: v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    }
+  ],
   "packageRules": [
     {
-      "description": "One PR for all toolchain bumps",
-      "matchManagers": ["mise"],
+      "description": "Every toolchain bump (mise.toml and the matching files) lands in one PR",
+      "matchManagers": ["mise", "custom.regex"],
       "groupName": "toolchain"
     },
     {
-      "description": "Node: LTS (even) majors only",
-      "matchManagers": ["mise"],
+      "description": "Go minor/major are deliberate migrations (Dockerfile builder, CI, ADRs): B-030",
+      "matchPackageNames": ["go", "golang"],
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false
+    },
+    {
+      "description": "Node majors are deliberate LTS migrations (CI, Dockerfile): B-055; minor/patch within the pinned LTS line are proposed",
       "matchPackageNames": ["node"],
-      "allowedVersions": "/^\\d*[02468]\\./"
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ]
 }

@@ -1,6 +1,7 @@
 # Dependency updates (NFR-SEC-014, NFR-MAINT-008). Batched so PRs do not pile up; green
 # PRs are merged by .github/workflows/automerge.yml. Renovate (renovate.json) covers only
-# mise.toml, which Dependabot cannot read, so no dependency gets two update PRs.
+# the toolchain pins (mise.toml + the go directive, packageManager and CI golangci-lint that
+# must match it), which Dependabot does not manage, so no dependency gets two update PRs.
 version: 2
 updates:
   - package-ecosystem: gomod

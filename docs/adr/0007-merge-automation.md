@@ -33,8 +33,11 @@ succeeded and pins the SHA. If the owner later enables branch protection with re
 checks, GitHub enforces it on the bot's merge as well.
 
 Dependency updates: Dependabot owns Go modules, npm, GitHub Actions and Docker (grouped to
-limit PR count; odd Node majors ignored). Renovate is configured only for `mise.toml`,
-which Dependabot cannot read, so no dependency gets two PRs.
+limit PR count; odd Node majors ignored). Renovate is configured only for the toolchain
+pins: `mise.toml` plus, through regex managers, the `go.mod` `go` directive,
+`package.json#packageManager` and the CI golangci-lint version, grouped into one PR so
+`check-toolchain.sh` passes. Dependabot manages none of these, so no dependency gets two
+PRs. Go minor/major and Node major bumps stay manual migrations.
 
 ## Consequences
 

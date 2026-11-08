@@ -31,7 +31,9 @@
 [mise](https://mise.jdx.dev) installed, `mise install` sets them up; `make check-toolchain`
 (also in CI) fails when `mise.toml`, `go.mod`, `package.json`, the Dockerfile and CI
 disagree (NFR-MAINT-007). Dependabot updates Go modules, npm packages, GitHub Actions and
-Docker images (grouped, weekly); Renovate updates only `mise.toml` (NFR-MAINT-008).
+Docker images (grouped, weekly); Renovate updates only the toolchain pins (`mise.toml` and the `go.mod` `go`
+directive, `packageManager` and CI golangci-lint that must match it) in one grouped PR
+(NFR-MAINT-008).
 
 ## Standards
 
