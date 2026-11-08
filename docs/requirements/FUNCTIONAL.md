@@ -227,7 +227,8 @@ only some fail) so panels can render partial results.
 - AC4: query errors map to stable codes and statuses (B-040): unknown datasource uid →
   `404 datasource_not_found`; invalid path / query / source settings → `400 invalid_query`;
   file not found → `404 not_found`; not a regular file → `400 invalid_query`; file too
-  large → `413 too_large`; unsupported format → `415 unsupported_format`; invalid format
+  large → `413 too_large`; request byte budget used up by earlier queries → `413
+  budget_exhausted` (AC9); unsupported format → `415 unsupported_format`; invalid format
   options (e.g. a two-character delimiter) → `400 invalid_query`; file content the format
   cannot decode (wrong column count, empty input) → `422 decode_failed`; per-query
   deadline → `504 timeout`; client gone → `499 cancelled`; anything else → `500
@@ -240,8 +241,9 @@ only some fail) so panels can render partial results.
 - AC9 (per-request byte budget, B-062): `queryMaxBytes` bounds the frames retained for a
   whole request, not each query, so one request can never hold more than `queryMaxBytes`
   of results however many queries it carries. When a query starts it reserves a share of
-  what is left: `remaining / min(free concurrency slots, queries not yet started)`, and
-  hands back what its frames did not use when it finishes. A query whose frames hit its
+  what is left: `remaining / queries not yet started` (counting itself), so queries get
+  equal shares, and it hands back what its frames did not use when it finishes; later
+  queries share what was handed back. A query whose frames hit its
   share is truncated (FR-010 notice) and gets an extra warning notice naming the
   request budget. A query that starts when nothing is left does not run and answers `413
   budget_exhausted`. A single-query request still gets the whole `queryMaxBytes`.
