@@ -35,6 +35,8 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
       | deploy/Dockerfile        | FROM golang:1.24-alpine | FROM golang:1.23-alpine | is older than go                       |
       | package.json             | "pnpm@10.28.0"          | "pnpm@10.27.0"          | pnpm (package.json)                    |
       | .github/workflows/ci.yml | version: v2.5.0         | version: v2.4.0         | golangci-lint (ci.yml)                 |
+      | deploy/Dockerfile        | pnpm@10.28.0            | pnpm@10.27.0            | pnpm (Dockerfile)                      |
+      | deploy/Dockerfile        | npm install -g pnpm@10.28.0 | corepack enable     | pnpm (Dockerfile)                      |
 
   Scenario: The image may build with a newer Node LTS than the pin
     Given a copy of the repository's toolchain declarations
