@@ -43,7 +43,6 @@ var (
 	downloadCmd = regexp.MustCompile(`(?:^|[\s;&|(])(curl|wget)\s`)
 	// A download whose output goes through a pipe into a shell or an extractor.
 	pipedDownload = regexp.MustCompile(`(?:^|[\s;&(])(?:curl|wget)\s[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|tar|python3?|perl|unzip|gunzip|xz)\b`)
-	hashCheck     = regexp.MustCompile(`\b(?:sha256sum|shasum\s+-a\s*256)\b[^\n]*(?:\s-c\b|--check\b)`)
 
 	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\s+((?:-\S+\s+)*)(\S+)`)
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -138,39 +137,86 @@ func CheckScript(name string, line int, script string) []Finding {
 // `echo "<sha>  file" | sha256sum -c -` is a single verification command.
 var segmentSep = regexp.MustCompile(`\n|;|&&|\|\|`)
 
-// unverifiedDownloads applies NFR-SEC-015 AC1 per downloaded file: each file needs a
-// `<sha256>  <file>` binding and a later `sha256sum -c`, with no other use of the file in
-// between. A piped download has no output file, so it is reported here as well as by
-// RuleDownloadPiped.
+// segment is one command of a script with the list operators around it ("" for a line
+// break, `;` or the start/end of the script).
+type segment struct {
+	text, before, after string
+}
+
+func splitSegments(script string) []segment {
+	idx := segmentSep.FindAllStringIndex(script, -1)
+	op := func(k int) string {
+		if k < 0 || k >= len(idx) {
+			return ""
+		}
+		if o := script[idx[k][0]:idx[k][1]]; o == "&&" || o == "||" {
+			return o
+		}
+		return ""
+	}
+	var out []segment
+	prev := 0
+	for k := 0; k <= len(idx); k++ {
+		end := len(script)
+		if k < len(idx) {
+			end = idx[k][0]
+		}
+		out = append(out, segment{text: script[prev:end], before: op(k - 1), after: op(k)})
+		if k < len(idx) {
+			prev = idx[k][1]
+		}
+	}
+	return out
+}
+
+// checkCmd is the only accepted verification form (NFR-SEC-015 AC1): the hash line is
+// piped straight into the checksum tool reading stdin, as one standalone command, so the
+// hash cannot be separated from the check (a manifest file can be swapped or ignored).
+var checkCmd = regexp.MustCompile(`^\s*(?:echo|printf)\s([^|<>` + "`" + `$]*)\|\s*(?:sha256sum|shasum\s+-a\s*256)\s+(?:-c|--check)(?:\s+-)?\s*$`)
+
+// verifies reports whether seg is a standalone checksum command whose piped input binds
+// file to a committed SHA-256.
+func verifies(seg segment, file string) bool {
+	if seg.before != "" || seg.after == "||" {
+		return false // conditional: `x && check`, `x || check`, `check || true`
+	}
+	m := checkCmd.FindStringSubmatch(seg.text)
+	if m == nil {
+		return false
+	}
+	bind := regexp.MustCompile(`\b[0-9a-f]{64}['"]?\s+['"]?\*?` + regexp.QuoteMeta(file) + `(?:$|[\s"'\\])`)
+	return bind.MatchString(m[1])
+}
+
+// unverifiedDownloads applies NFR-SEC-015 AC1 per downloaded file: after the download,
+// a standalone `echo "<sha256>  <file>" | sha256sum -c -` must come before any other
+// command that mentions the file. A piped download has no output file, so it is
+// reported here as well as by RuleDownloadPiped.
 func unverifiedDownloads(script string) []string {
-	segs := segmentSep.Split(script, -1)
+	segs := splitSegments(script)
 	var out []string
 	for i, seg := range segs {
-		if !downloadCmd.MatchString(seg) {
+		if !downloadCmd.MatchString(seg.text) {
 			continue
 		}
-		file := downloadTarget(seg)
+		file := downloadTarget(seg.text)
 		if file == "" {
 			out = append(out, "cannot tell which output file a download writes; save it with -o <file> and verify that file's SHA-256 (sha256sum -c)")
 			continue
 		}
-		bind := regexp.MustCompile(`\b[0-9a-f]{64}\s+\*?` + regexp.QuoteMeta(file) + `(?:$|[\s"'])`)
-		mention := regexp.MustCompile(`(?:^|[\s"'/=])` + regexp.QuoteMeta(file) + `(?:$|[\s"';|&)])`)
-		bound, verified := false, false
+		mention := regexp.MustCompile(`(?:^|[\s"'/=])` + regexp.QuoteMeta(file) + `(?:$|[\s"';|&)\\])`)
+		verified := false
 		for _, later := range segs[i+1:] {
-			if bind.MatchString(later) {
-				bound = true
-			}
-			if hashCheck.MatchString(later) && bound {
+			if verifies(later, file) {
 				verified = true
 				break
 			}
-			if !bind.MatchString(later) && mention.MatchString(later) {
-				break // used (extracted, run, moved) before it was verified
+			if mention.MatchString(later.text) {
+				break // used (extracted, run, moved, put in a manifest) before it was verified
 			}
 		}
 		if !verified {
-			out = append(out, fmt.Sprintf("downloaded file %q is not verified against a committed SHA-256 (\"<sha256>  %s\" | sha256sum -c) before it is used", file, file))
+			out = append(out, fmt.Sprintf("downloaded file %q is not verified before it is used; add the standalone command: echo \"<sha256>  %s\" | sha256sum -c -", file, file))
 		}
 	}
 	return out

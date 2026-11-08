@@ -42,7 +42,9 @@ Workflows may only run tools that are pinned and verified, and `make lint-workfl
 
 - A binary downloaded with `curl`/`wget` is saved to a file, checked with
   `echo "<sha256>  file" | sha256sum -c -` against a hash committed in the same step, and
-  only then extracted. `curl … | tar` and `curl … | sh` are rejected. To bump such a tool,
+  only then extracted. That exact form is the only one accepted: a standalone command, one
+  per file, not inside `if`, `&&` or `||`, and no checksum manifests on disk.
+  `curl … | tar` and `curl … | sh` are rejected. To bump such a tool,
   change the version and take the new hash from the release's checksums file.
 - `go run`/`go install` of an external tool uses an exact `@vX.Y.Z`, never `@latest`.
 - `uses:` names a tag (`@v4`) or a 40-character commit SHA; `docker://` images need an
