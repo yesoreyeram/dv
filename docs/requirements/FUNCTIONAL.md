@@ -237,6 +237,14 @@ only some fail) so panels can render partial results.
 - AC6: host result limits `queryMaxRows` (default 100 000, `DV_QUERY_MAX_ROWS`) and
   `queryMaxBytes` (default 32 MiB, `DV_QUERY_MAX_BYTES`) apply to every query (NFR-PERF-003).
   A query may lower the row limit with `maxRows` but can never raise it above the host limit.
+- AC9 (per-request byte budget, B-062): `queryMaxBytes` bounds the frames retained for a
+  whole request, not each query, so one request can never hold more than `queryMaxBytes`
+  of results however many queries it carries. When a query starts it reserves a share of
+  what is left: `remaining / min(free concurrency slots, queries not yet started)`, and
+  hands back what its frames did not use when it finishes. A query whose frames hit its
+  share is truncated (FR-010 notice) and gets an extra warning notice naming the
+  request budget. A query that starts when nothing is left does not run and answers `413
+  budget_exhausted`. A single-query request still gets the whole `queryMaxBytes`.
 - AC7: until authentication ships (M3, NFR-SEC-003) the endpoint is off by default
   (`queryApiEnabled=false`, `DV_QUERY_API_ENABLED`): when off it answers `404` like any
   unknown route. When on, start-up fails unless `httpAddr` binds a loopback address, or the

@@ -128,3 +128,27 @@ Feature: Query API over provisioned data sources
       | method | path                |
       | GET    | /api/v1/datasources |
       | POST   | /api/v1/query       |
+
+  # B-062: one request can never retain more than queryMaxBytes of frames (FR-016 AC9).
+  Scenario: The byte limit is a budget shared by all queries of one request
+    Given the query API is enabled
+    And a file "big.csv" in root "samples" with 200 rows
+    And the host query byte limit is 12000 bytes
+    When I query "files" with refId "A" and path "big.csv"
+    Then result "A" has status 200 and 1 frame with 200 rows
+    When I send the queries:
+      | refId | uid   | path    |
+      | A     | files | big.csv |
+      | B     | files | big.csv |
+    Then the response status should be 200
+    And result "A" frame 0 is marked truncated
+    And result "B" frame 0 is marked truncated
+    And result "A" frame 0 has a notice mentioning "request byte budget"
+    And the frames of the response hold at most 12000 bytes
+
+  Scenario: A query that starts after the budget is used up does not run
+    Given the query API is enabled
+    And a file "big.csv" in root "samples" with 200 rows
+    And the host query byte limit is 12000 bytes
+    When I send 6 queries to "files" for path "big.csv"
+    Then the frames of the response hold at most 12000 bytes
