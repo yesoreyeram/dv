@@ -6,9 +6,10 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
   Each scenario copies the toolchain declarations of this repository into a scratch
   directory, changes one of them, and runs scripts/check-toolchain.sh there (AC5).
 
-  Values in braces are read from the copied mise.toml ({go}, {go.minor}, {pnpm},
-  {golangci-lint}, {node.major}, and {node.major+1} / {node.major-2} / {node.major+2}), so a
-  coordinated toolchain bump does not need this file to change.
+  Values in braces are read from the copied files: {go}, {pnpm}, {golangci-lint} and
+  {node.major} (with +1 / -2 offsets) from mise.toml, {docker.go} and {docker.node} (with
+  a +2 offset) from the Dockerfile's FROM lines. So neither a coordinated toolchain bump
+  nor a Dependabot builder-image bump needs this file to change.
 
   Scenario: The repository's own toolchain pins are consistent
     Given a copy of the repository's toolchain declarations
@@ -21,7 +22,7 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
     Given a copy of the repository's toolchain declarations
     Then "mise.toml" pins Node major 26
     And every "node-version" in ".github/workflows/ci.yml" is 26
-    And "deploy/Dockerfile" builds the web assets with "node:26-alpine"
+    And "deploy/Dockerfile" builds the web assets with an LTS Node image not older than the pin
 
   Scenario Outline: A drifting declaration fails the check
     Given a copy of the repository's toolchain declarations
@@ -33,11 +34,11 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
     Examples:
       | file                     | from                                          | to                               | message                                         |
       | .github/workflows/ci.yml | node-version: {node.major}                    | node-version: {node.major-2}     | node major (ci.yml)                             |
-      | deploy/Dockerfile        | FROM node:{node.major}-alpine                 | FROM node:{node.major-2}-alpine  | must be an LTS (even) major >= {node.major}     |
-      | deploy/Dockerfile        | FROM node:{node.major}-alpine                 | FROM node:{node.major+1}-alpine  | must be an LTS (even) major >= {node.major}     |
+      | deploy/Dockerfile        | FROM node:{docker.node}-alpine                | FROM node:{node.major-2}-alpine  | must be an LTS (even) major >= {node.major}     |
+      | deploy/Dockerfile        | FROM node:{docker.node}-alpine                | FROM node:{node.major+1}-alpine  | must be an LTS (even) major >= {node.major}     |
       | mise.toml                | node = "{node.major}.                         | node = "{node.major+1}.          | is not an LTS (even) major                      |
       | go.mod                   | go {go}                                       | go 1.0.0                         | go (go.mod)                                     |
-      | deploy/Dockerfile        | FROM golang:{go.minor}-alpine                 | FROM golang:1.0-alpine           | is older than go                                |
+      | deploy/Dockerfile        | FROM golang:{docker.go}-alpine                | FROM golang:1.0-alpine           | is older than go                                |
       | package.json             | "pnpm@{pnpm}"                                 | "pnpm@0.0.1"                     | pnpm (package.json)                             |
       | .github/workflows/ci.yml | version: v{golangci-lint}                     | version: v0.0.1                  | golangci-lint (ci.yml)                          |
       | deploy/Dockerfile        | pnpm@{pnpm}                                   | pnpm@0.0.1                       | pnpm (Dockerfile)                               |
@@ -49,8 +50,15 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
     When the toolchain check runs
     Then the toolchain check passes
 
+  Scenario: Dependabot moving the builder images to newer allowed versions passes without editing this file
+    Given a copy of the repository's toolchain declarations
+    And in "deploy/Dockerfile" the text 'FROM golang:{docker.go}-alpine' is replaced with 'FROM golang:9.99-alpine'
+    And in "deploy/Dockerfile" the text 'FROM node:{docker.node}-alpine' is replaced with 'FROM node:{docker.node+2}-alpine'
+    When the toolchain check runs
+    Then the toolchain check passes
+
   Scenario: The image may build with a newer Node LTS than the pin
     Given a copy of the repository's toolchain declarations
-    And in "deploy/Dockerfile" the text 'FROM node:{node.major}-alpine' is replaced with 'FROM node:{node.major+2}-alpine'
+    And in "deploy/Dockerfile" the text 'FROM node:{docker.node}-alpine' is replaced with 'FROM node:{docker.node+2}-alpine'
     When the toolchain check runs
     Then the toolchain check passes
