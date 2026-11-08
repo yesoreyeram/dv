@@ -3,7 +3,9 @@
 
 FROM node:26-alpine AS web
 WORKDIR /src
-RUN corepack enable
+# Node >= 25 no longer bundles corepack; install exactly the pnpm pinned in mise.toml and
+# package.json (checked by scripts/check-toolchain.sh, NFR-MAINT-007 AC2).
+RUN npm install -g --ignore-scripts pnpm@10.28.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web/package.json web/
 COPY e2e/package.json e2e/

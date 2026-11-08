@@ -35,6 +35,14 @@
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "deploy/Dockerfile pnpm follows mise.toml pnpm",
+      "managerFilePatterns": ["/^deploy/Dockerfile$/"],
+      "matchStrings": ["npm install -g --ignore-scripts pnpm@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "pnpm",
+      "datasourceTemplate": "npm"
     }
   ],
   "packageRules": [

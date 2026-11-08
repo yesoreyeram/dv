@@ -23,6 +23,7 @@ if [[ "$(printf '%s\n%s\n' "${go_mise%.*}" "$docker_go" | sort -V | head -n1)" !
   echo "toolchain mismatch: Dockerfile golang:${docker_go} is older than go ${go_mise}"; fail=1
 fi
 check "pnpm (package.json)" "$pnpm_mise" "$(sed -nE 's/.*"packageManager": "pnpm@([^"]+)".*/\1/p' package.json)"
+check "pnpm (Dockerfile)" "$pnpm_mise" "$(sed -nE 's/^RUN npm install -g (--ignore-scripts )?pnpm@([0-9][^[:space:]]*)$/\2/p' deploy/Dockerfile)"
 docker_node=$(sed -nE 's/^FROM node:([0-9]+)-alpine.*/\1/p' deploy/Dockerfile)
 if (( docker_node % 2 != 0 || docker_node < ${node_mise%%.*} )); then
   echo "toolchain mismatch: Dockerfile node:${docker_node} must be an LTS (even) major >= ${node_mise%%.*}"; fail=1
