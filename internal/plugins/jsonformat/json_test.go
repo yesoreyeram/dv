@@ -444,3 +444,45 @@ func FuzzDecode(f *testing.F) {
 		}
 	})
 }
+
+// Codex review on #19: a literal dotted key and a flattened path must stay two fields
+// (FR-012 AC3/AC5); field names are then de-duplicated.
+func TestFlattenKeepsDottedKeyAndNestedPathApart(t *testing.T) {
+	for _, in := range []string{`[{"a.b":1,"a":{"b":2}}]`, `[{"a":{"b":2},"a.b":1}]`} {
+		fr := mustDecode(t, NewJSON(), in, withOptions(`{"flatten":true}`))
+		if len(fr.Fields) != 2 {
+			t.Fatalf("%s: fields = %v, want 2", in, fieldNames(fr))
+		}
+		got := values(t, fr, "a.b") + "|" + values(t, fr, "a.b (2)")
+		if got != "1|2" && got != "2|1" {
+			t.Fatalf("%s: values = %s", in, got)
+		}
+	}
+	// The same key in later rows still lands in its own column.
+	fr := mustDecode(t, NewJSON(), `[{"a.b":1,"a":{"b":2}},{"a":{"b":4},"a.b":3}]`, withOptions(`{"flatten":true}`))
+	if got := values(t, fr, "a.b") + "|" + values(t, fr, "a.b (2)"); got != "1,3|2,4" {
+		t.Fatalf("two rows: %s", got)
+	}
+}
+
+// Codex review on #19: a single-value document refused by the byte limit is reported
+// as truncated (FR-012 AC6), not as an empty result.
+func TestByteLimitOnSingleValueDocumentIsTruncated(t *testing.T) {
+	for _, in := range []string{`{"a":1}`, `"a long string value"`} {
+		fr := mustDecode(t, NewJSON(), in, plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 5}})
+		if !fr.Meta.Truncated || len(fr.Meta.Notices) == 0 {
+			t.Fatalf("%s: meta = %+v, want truncated with a notice", in, fr.Meta)
+		}
+	}
+}
+
+// Codex review on #19: an unsupported fieldTypes override is an options error, so the
+// query API answers 400 invalid_query (FR-012 AC4, FR-016 AC4).
+func TestUnsupportedFieldTypeIsOptionsError(t *testing.T) {
+	for _, f := range []*Format{NewJSON(), NewNDJSON()} {
+		_, err := decode(t, f, `{"a":1}`, plugin.DecodeOptions{FieldTypes: map[string]frame.FieldType{"a": "integer"}})
+		if !errors.Is(err, plugin.ErrOptions) {
+			t.Fatalf("%s: err = %v, want ErrOptions", f.Meta().ID, err)
+		}
+	}
+}

@@ -238,7 +238,8 @@ so it needs its own threat-model entry and evaluation budget before it lands (B-
   non-array, fails as a decode error naming the path (not the file content).
 - AC3: fields are the union of keys in first-seen order; a key missing from a row is null.
   Empty keys become `Column N`, names are cut to the field-name limit and de-duplicated
-  with ` (2)` suffixes as in FR-011 AC6. At most 1024 fields; more fails as a decode error.
+  with ` (2)` suffixes as in FR-011 AC6; a literal dotted key such as `"a.b"` and the
+  flattened path `a` → `b` are distinct fields (`a.b`, `a.b (2)`), never merged. At most 1024 fields; more fails as a decode error.
   A UTF-8 BOM is stripped.
 - AC4: types. JSON numbers are `number` (`int64` when integral and in range, else finite
   `float64`; a number that is neither becomes null with a warning notice), booleans `bool`,
@@ -246,7 +247,8 @@ so it needs its own threat-model entry and evaluation budget before it lands (B-
   FR-011 AC7 layouts, then `time` (UTC). Objects and arrays are `json` fields holding the raw
   value. A field whose values mix kinds (for example numbers and strings) is `string`, with
   non-string values rendered as compact JSON text. `fieldTypes` overrides work as in FR-011
-  AC7 (unparsable values become null with one warning per field). Inference uses only the
+  AC7 (unparsable values become null with one warning per field); an unsupported override
+  type fails as invalid options (HTTP 400 `invalid_query`, FR-016 AC4). Inference uses only the
   rows the frame returns.
 - AC5: `options.flatten: true` expands nested objects into `parent.child` fields up to 8
   levels (deeper objects stay `json`); arrays are never expanded. Unknown option keys, a malformed
@@ -259,7 +261,8 @@ so it needs its own threat-model entry and evaluation budget before it lands (B-
   later rows can neither change types nor push the result over the limit. Held cells are
   the decoded JSON values (number text, strings, compact nested JSON), so they stay close
   to the converted size; the frame builder enforces the limit again. Nesting deeper
-  than 64 levels fails as a decode error. Truncation sets `meta.truncated` with a notice.
+  than 64 levels fails as a decode error. Truncation sets `meta.truncated` with a notice, including
+  when the byte limit refuses the only row of a single-value document.
   Decoding honours context cancellation.
 - AC7: syntax errors fail as a decode error with the byte offset (JSON) or row number
   (NDJSON) and never echo file content; trailing data after the top-level `json` value is a

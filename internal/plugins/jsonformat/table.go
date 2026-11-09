@@ -177,7 +177,7 @@ func (t *table) add(cells []cell) error {
 	}
 	// Resolve fields; duplicate keys in one row keep the last value.
 	idx := make(map[int]any, len(cells))
-	var fresh []string
+	var fresh []cell // first cell of each new field, in order
 	freshAt := map[string]int{}
 	for _, c := range cells {
 		i, ok := t.byKey[c.key]
@@ -189,15 +189,15 @@ func (t *table) add(cells []cell) error {
 				}
 				j = len(fresh)
 				freshAt[c.key] = j
-				fresh = append(fresh, c.key)
+				fresh = append(fresh, c)
 			}
 			i = len(t.cols) + j
 		}
 		idx[i] = c.v
 	}
 	newCols := make([]*column, len(fresh))
-	for j, key := range fresh {
-		newCols[j] = &column{fixed: t.overrides[key]}
+	for j, f := range fresh {
+		newCols[j] = &column{fixed: t.overrides[f.name]}
 	}
 	colAt := func(i int) *column {
 		if i < len(t.cols) {
@@ -228,12 +228,12 @@ func (t *table) add(cells []cell) error {
 		t.notice(fmt.Sprintf("Result truncated at the byte limit of %d bytes.", t.lim.MaxBytes))
 		return nil
 	}
-	for j, key := range fresh {
+	for j, f := range fresh {
 		c := newCols[j]
-		c.name = t.fieldName(key, len(t.cols))
+		c.name = t.fieldName(f.name, len(t.cols))
 		c.cells = make([]any, t.rows, t.rows+1)
 		t.names[c.name] = true
-		t.byKey[key] = len(t.cols)
+		t.byKey[f.key] = len(t.cols)
 		t.cols = append(t.cols, c)
 	}
 	for i, c := range t.cols {
