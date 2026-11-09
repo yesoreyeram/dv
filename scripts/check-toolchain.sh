@@ -32,6 +32,15 @@ while read -r v; do check "node major (ci.yml)" "${node_mise%%.*}" "$v"; done \
   < <(sed -nE 's/^[[:space:]]*node-version: ([0-9]+)$/\1/p' .github/workflows/ci.yml)
 check "golangci-lint (ci.yml)" "v$lint_mise" "$(sed -nE 's/^[[:space:]]*version: (v[0-9.]+)$/\1/p' .github/workflows/ci.yml | head -n1)"
 
+# NFR-SEC-015 AC6: govulncheck scans the go.mod toolchain (no silent toolchain switch) and
+# prints the Go version it scanned.
+while IFS= read -r l; do
+  [[ "$l" =~ GOTOOLCHAIN=local[[:space:]]+go[[:space:]]+run[[:space:]]+golang\.org/x/vuln/cmd/govulncheck@ ]] ||
+    { echo "toolchain mismatch: govulncheck must run with GOTOOLCHAIN=local: ${l#"${l%%[![:space:]]*}"}"; fail=1; }
+  [[ "$l" =~ [[:space:]]-show[[:space:]]+([a-z,]*,)?version ]] ||
+    { echo "toolchain mismatch: govulncheck must print the scanned Go version (-show version): ${l#"${l%%[![:space:]]*}"}"; fail=1; }
+done < <(grep -hE 'govulncheck@' .github/workflows/*.yml | grep -vE '^[[:space:]]*#')
+
 if (( ${node_mise%%.*} % 2 != 0 )); then echo "node ${node_mise} is not an LTS (even) major"; fail=1; fi
 if (( fail == 0 )); then echo "toolchain pins consistent: go ${go_mise}, node ${node_mise}, pnpm ${pnpm_mise}, golangci-lint ${lint_mise}"; fi
 exit "$fail"

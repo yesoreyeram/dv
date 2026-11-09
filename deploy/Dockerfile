@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile --filter web...
 COPY web/ web/
 RUN pnpm --filter web run build
 
-FROM golang:1.24-alpine AS go
+FROM golang:1.27-alpine AS go
 WORKDIR /src
 ARG VERSION=dev
 ARG COMMIT=unknown

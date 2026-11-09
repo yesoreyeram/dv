@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -52,10 +53,9 @@ var (
 	httpsArg   = regexp.MustCompile(`^https://\S+$`)
 	sha256Arg  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-	// A `go run`/`go install` command and all its arguments (up to the end of the command).
-	// Flags are not parsed: every module/path@version argument is checked instead, so a
-	// value-taking flag (-tags netgo, -C dir) cannot hide the package (NFR-SEC-015 AC2).
-	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\b([^;&|\n]*)`)
+	// A `go run`/`go install` command is found by splitting the script into shell words
+	// (shellCommands), so quoting cannot hide the subcommand or the package. Flags are not
+	// parsed: every module/path@version word is checked (NFR-SEC-015 AC2).
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
 	actionTag = regexp.MustCompile(`^v\d+(?:\.\d+){0,2}$`)
@@ -142,9 +142,12 @@ func CheckScript(name string, line int, script string) []Finding {
 			add(RuleDownloadUnverified, fmt.Sprintf("scripts/fetch-verified.sh needs <https-url> <sha256> <output> with the SHA-256 as a committed 64-hex literal, got %q", strings.TrimSpace(m[1])))
 		}
 	}
-	for _, m := range goTool.FindAllStringSubmatch(joined, -1) {
-		for _, tok := range strings.Fields(m[1]) {
-			target := unquote(strings.Trim(tok, `"'`))
+	// Two readings (NFR-SEC-015 AC2): shell words as written, and the same script with
+	// double quotes as plain separators, because "$(go run …)" and "`go run …`" still
+	// execute. Single-quoted text stays literal in both. A finding from either counts.
+	seen := map[string]bool{}
+	for _, args := range append(goToolCommands(joined), goToolCommands(strings.ReplaceAll(joined, `"`, " "))...) {
+		for _, target := range args {
 			if strings.HasPrefix(target, "-") || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
 				continue // a flag, a local package or a path inside the checkout
 			}
@@ -152,12 +155,101 @@ func CheckScript(name string, line int, script string) []Finding {
 			if at < 0 || !strings.Contains(target[:at], "/") {
 				continue // no version: resolved through this module's go.mod/go.sum
 			}
-			if v := target[at+1:]; !exactSemv.MatchString(v) {
+			if v := target[at+1:]; !exactSemv.MatchString(v) && !seen[target] {
+				seen[target] = true
 				add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
 			}
 		}
 	}
 	return out
+}
+
+// goToolCommands returns, for every `go` command in script that has a `run` or `install`
+// word, the words after `go`. Global flags before the subcommand (`go -C dir run`) and
+// flag values are not interpreted, so a `run` word anywhere after `go` counts; this can
+// only add findings, never hide one.
+func goToolCommands(script string) [][]string {
+	var out [][]string
+	for _, words := range shellCommands(script) {
+		for i, w := range words {
+			if w != "go" && !strings.HasSuffix(w, "/go") {
+				continue
+			}
+			rest := words[i+1:]
+			if slices.Contains(rest, "run") || slices.Contains(rest, "install") {
+				out = append(out, rest)
+			}
+			break
+		}
+	}
+	return out
+}
+
+// shellCommands splits a script into commands and each command into words, following
+// POSIX sh quoting: single quotes keep everything literally, double quotes and a
+// backslash outside quotes keep the next character, and the quotes themselves are
+// removed. Outside quotes, newlines, ';', '&', '|', '(', ')' and backticks end a
+// command, and spaces and tabs separate words. Variable expansion is not performed.
+func shellCommands(script string) [][]string {
+	var (
+		cmds  [][]string
+		words []string
+		word  strings.Builder
+		inW   bool // a word has started (an empty quoted word "" counts)
+		quote byte
+	)
+	endWord := func() {
+		if inW {
+			words = append(words, word.String())
+			word.Reset()
+			inW = false
+		}
+	}
+	endCmd := func() {
+		endWord()
+		if len(words) > 0 {
+			cmds = append(cmds, words)
+			words = nil
+		}
+	}
+	for i := 0; i < len(script); i++ {
+		c := script[i]
+		switch {
+		case quote == '\'':
+			if c == '\'' {
+				quote = 0
+			} else {
+				word.WriteByte(c)
+			}
+		case quote == '"':
+			switch {
+			case c == '"':
+				quote = 0
+			case c == '\\' && i+1 < len(script) && strings.IndexByte("$`\"\\\n", script[i+1]) >= 0:
+				i++
+				word.WriteByte(script[i])
+			default:
+				word.WriteByte(c)
+			}
+		case c == '\'' || c == '"':
+			quote, inW = c, true
+		case c == '\\':
+			if i+1 < len(script) {
+				i++
+				word.WriteByte(script[i])
+				inW = true
+			}
+		case c == ' ' || c == '\t':
+			endWord()
+		case strings.IndexByte("\n;&|()`", c) >= 0:
+			endCmd()
+		default:
+			word.WriteByte(c)
+			inW = true
+		}
+	}
+	endCmd()
+	return cmds
 }
 
 func checkUses(ref string) (string, bool) {

@@ -3,10 +3,10 @@
 # .github/workflows/ci.yml. Renovate updates this file and the matching
 # declarations together in one "toolchain" PR (renovate.json).
 [tools]
-go = "1.24.7"
+go = "1.27.3"
 node = "26.13.0"
 pnpm = "10.28.0"
-golangci-lint = "2.5.0"
+golangci-lint = "2.15.0"
 
 [env]
 # Keep go.sum honest and avoid silent toolchain downloads.

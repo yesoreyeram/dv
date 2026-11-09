@@ -44,6 +44,16 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
       | go run -tags netgo golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                       | go-tool-unpinned    |
       | go run -ldflags "-s -w" -mod mod golang.org/x/vuln/cmd/govulncheck@latest ./...                                                         | go-tool-unpinned    |
       | go install -C /tmp github.com/example/a@v1.2.3 github.com/example/b@latest                                                              | go-tool-unpinned    |
+      | go -C . run golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                              | go-tool-unpinned    |
+      | go -C=tools install github.com/example/tool@main                                                                                        | go-tool-unpinned    |
+      | go -C "$GITHUB_WORKSPACE" run -tags netgo golang.org/x/vuln/cmd/govulncheck@latest ./...                                                | go-tool-unpinned    |
+      | go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                    | go-tool-unpinned    |
+      | go -C 'a;b' run golang.org/x/vuln/cmd/govulncheck@latest ./...                                                                          | go-tool-unpinned    |
+      | go -C a\ b install github.com/example/tool@main                                                                                         | go-tool-unpinned    |
+      | v=$(go run golang.org/x/vuln/cmd/govulncheck@latest ./...)                                                                              | go-tool-unpinned    |
+      | v="$(go run golang.org/x/vuln/cmd/govulncheck@latest ./...)"                                                                            | go-tool-unpinned    |
+      | v="`go run golang.org/x/vuln/cmd/govulncheck@latest ./...`"                                                                             | go-tool-unpinned    |
+      | echo "found: $(go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@latest)"                                                         | go-tool-unpinned    |
 
   Scenario: A download inside a heredoc is refused too
     Given a workflow step that runs:
@@ -132,6 +142,9 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
       """
       go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       go run ./cmd/dv-automerge
+      go -C tools run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      go test -run TestX ./...
+      echo 'go run golang.org/x/vuln/cmd/govulncheck@latest is not allowed'
       """
     When the CI supply-chain policy checks the workflow
     Then the workflow passes the policy
