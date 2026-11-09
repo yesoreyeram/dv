@@ -29,7 +29,7 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-011 | CSV / TSV file source | M | M2 | In progress |
 | FR-016 | Query API (`POST /api/v1/query`) | M | M2 | In progress |
 | FR-017 | Provisioned data-source instances | M | M2 | In progress |
-| FR-012 | JSON file source | M | M2 | Planned |
+| FR-012 | JSON and NDJSON file formats | M | M2 | In progress |
 | FR-013 | Table panel | M | M2 | In progress |
 | FR-018 | Explore page (ad-hoc query against a provisioned source) | M | M2 | In progress |
 | FR-014 | Time-series line chart panel | M | M2 | Planned |
@@ -45,7 +45,7 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-050 | Dashboards: create, save, load | M | M6 | Planned |
 | FR-051 | Dashboard variables | S | M6 | Planned |
 | FR-052 | Dashboard time range | M | M6 | Planned |
-| FR-060 | NDJSON, XML, YAML formats | S | M7 | Planned |
+| FR-060 | XML, YAML formats (NDJSON moved to FR-012) | S | M7 | Planned |
 | FR-061 | Parquet and Excel formats | S | M7 | Planned |
 | FR-062 | Object-storage source (S3-compatible) | S | M7 | Planned |
 | FR-063 | Query result caching | S | M7 | Planned |
@@ -101,6 +101,13 @@ A React single-page application provides the product frame.
 - AC4: light/dark theme toggle; initial theme follows `prefers-color-scheme`; choice persists per browser.
 - AC5: unknown routes render a "Page not found" view with a link home.
 - AC6: features not yet built show an explicit "planned for milestone Mx" empty state — never fake data.
+- AC7: below the `md` breakpoint the navigation is one horizontally scrolling row. On load
+  and on every route change the current page link is scrolled fully into view inside that
+  row (the page itself never scrolls sideways), and a fade at the start or end edge shows
+  when more links are hidden in that direction (logical edges, so RTL is mirrored). The
+  fades are decorative (`aria-hidden`) and give way to a solid edge line in forced-colors
+  mode. Market baseline: the mobile tab bars of Grafana, Datadog and New Relic keep the
+  selected tab visible and fade the clipped edge (B-050).
 
 ### FR-006 — System status view (S)
 The Home page shows server liveness/readiness and build version, fetched via TanStack Query.
@@ -208,6 +215,64 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
 - AC10: frames are named after the file's base name; `meta.source` is `file` and
   `meta.executedQuery` is `<root>:<path>`.
 
+### FR-012 — JSON and NDJSON file formats (M)
+Editors query JSON documents and newline-delimited JSON (NDJSON / JSON Lines) files through
+the same `file` source, with the FR-011 path, size and limit controls. Market baseline: the
+Grafana Infinity and JSON API data sources select a row array with a root selector and map
+nested properties to columns; Power BI and Looker expand nested records into dotted
+columns. dv offers the same with a streaming decoder that never builds the whole document.
+NDJSON is pulled forward from FR-060 because it shares the decoder.
+Market re-check (2026-11-09): the Infinity backend parser also offers JSONata and jq
+expressions as root selectors. dv deliberately starts with a dot-path subset (AC2): an
+expression engine is an untrusted-input interpreter (CPU/memory DoS, sandbox escape surface),
+so it needs its own threat-model entry and evaluation budget before it lands (B-065).
+- AC1: formats `json` (`.json`, `application/json`) and `ndjson` (`.ndjson`, `.jsonl`,
+  `application/x-ndjson`) are registered and chosen by extension (case-insensitive) or by an
+  explicit `format`, like FR-011 AC5. Both appear in `GET /api/v1/plugins`.
+- AC2: row shapes. For `json` the rows are the elements of the top-level array, or of the
+  array found at `options.rowsPath` (dot-separated object keys, each `[A-Za-z0-9_-]{1,128}`,
+  at most 16 segments). A top-level object with no `rowsPath` is one row. For `ndjson` each
+  top-level JSON value (one per line; blank lines skipped) is a row. An element that is an
+  object gives one field per key; any other element (number, string, bool, null, array) is a
+  row with a single field `value`. A missing `rowsPath` key, or one that leads to a
+  non-array, fails as a decode error naming the path (not the file content).
+- AC3: fields are the union of keys in first-seen order; a key missing from a row is null.
+  Empty keys become `Column N`, names are cut to the field-name limit and de-duplicated
+  with ` (2)` suffixes as in FR-011 AC6. At most 1024 fields; more fails as a decode error.
+  A UTF-8 BOM is stripped.
+- AC4: types. JSON numbers are `number` (`int64` when integral and in range, else finite
+  `float64`; a number that is neither becomes null with a warning notice), booleans `bool`,
+  strings `string` unless every non-null string in the field parses as a time under the
+  FR-011 AC7 layouts, then `time` (UTC). Objects and arrays are `json` fields holding the raw
+  value. A field whose values mix kinds (for example numbers and strings) is `string`, with
+  non-string values rendered as compact JSON text. `fieldTypes` overrides work as in FR-011
+  AC7 (unparsable values become null with one warning per field). Inference uses only the
+  rows the frame returns.
+- AC5: `options.flatten: true` expands nested objects into `parent.child` fields up to 8
+  levels (deeper objects stay `json`); arrays are never expanded. Unknown option keys, a malformed
+  `rowsPath`, or `rowsPath` on `ndjson` fail as invalid options.
+- AC6: limits. Decoding streams tokens: at most `MaxRows`+1 rows are decoded and input after
+  that is never parsed, so a truncated result cannot fail on later syntax errors; values
+  that are skipped on the way to `rowsPath` are consumed token by token, never allocated as
+  a whole. The byte limit is planned on converted values while rows are read: a row is
+  kept only if every kept row, under the types inferred from the kept rows, still fits, so
+  later rows can neither change types nor push the result over the limit. Held cells are
+  the decoded JSON values (number text, strings, compact nested JSON), so they stay close
+  to the converted size; the frame builder enforces the limit again. Nesting deeper
+  than 64 levels fails as a decode error. Truncation sets `meta.truncated` with a notice.
+  Decoding honours context cancellation.
+- AC7: syntax errors fail as a decode error with the byte offset (JSON) or row number
+  (NDJSON) and never echo file content; trailing data after the top-level `json` value is a
+  decode error. Duplicate keys in one object keep the last value.
+- AC8: frames are named and given `meta` as in FR-011 AC10.
+- AC9: Explore (FR-018) shows the JSON options when the chosen format is `json`, or when
+  the format is automatic and the path ends in `.json`: a "Rows path" text field and a
+  "Flatten nested objects" checkbox; for `ndjson` (or `.ndjson`/`.jsonl` paths) only the
+  checkbox. Both are kept in the URL (`rowsPath`, `flatten=1`) and sent as
+  `query.options` only when set. A rows path that breaks the AC2 rules is reported inline
+  (`aria-invalid`, linked error text) and nothing is sent. Sample files `services.json`
+  and `events.ndjson` ship in `deploy/samples`.
+
 ### FR-016 — Query API `POST /api/v1/query` (M)
 Clients run one or more queries against configured data-source instances and get frames
 back, keyed by `refId`. The request/response shape follows the established dashboard-tool
@@ -302,6 +367,12 @@ virtualization for large results, and a visible "results truncated" signal.
 - AC6: frame notices (FR-010) and `meta.truncated` are shown above the table as alerts.
 - AC7: the table sits in a horizontally scrollable region that is keyboard focusable and
   labelled (WCAG 2.1.1).
+- AC8: when the table is wider than its region, a fade on the edge(s) with hidden columns
+  shows that the region scrolls (start, end or both; logical edges for RTL), updated on
+  scroll, resize and new frames; it disappears once that edge is reached. The fades are
+  decorative (`aria-hidden`), never cover the focus outline, and become a solid edge line
+  in forced-colors mode. Arrow keys scroll the focused region (AC7). Market baseline:
+  Grafana, Datadog and Power BI tables all show clipped-column affordances (B-066).
 
 ### FR-018 — Explore page (M)
 `/explore` runs one ad-hoc query against a provisioned data source (FR-017) through the
@@ -346,10 +417,9 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
   (`?ds=&path=&format=&maxRows=`) and restored on load; an unknown `ds` falls back to the
   first data source. The query only runs when the user presses Run.
 
-### FR-012 … FR-064
+### FR-014 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
 (see `docs/BACKLOG.md`). Draft intent:
-- **FR-012** JSON files through the same `file` source and the FR-011 path/size controls; type inference with explicit overrides.
 - **FR-014** Line chart needs one time field and ≥1 numeric field.
 - **FR-020/021** Argon2id-hashed passwords, server-side sessions, CSRF protection; RBAC enforced server-side on every endpoint.
 - **FR-022** Secrets encrypted with AES-256-GCM envelope encryption; write-only through the API.
