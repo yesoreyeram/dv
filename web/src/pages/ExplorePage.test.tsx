@@ -214,6 +214,67 @@ describe("Explore page (FR-018)", () => {
     expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
   });
 
+  it("keeps a replacement run active when a running query is superseded (AC3)", async () => {
+    const user = userEvent.setup();
+    const signals: AbortSignal[] = [];
+    const { fetchMock } = renderApp("/explore", responder(ok));
+    const base = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input !== "/api/v1/query") return base ? base(input, init) : Promise.reject(new Error());
+      const signal = init?.signal ?? new AbortController().signal;
+      signals.push(signal);
+      return new Promise<Response>((_, reject) => {
+        signal.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    });
+    const path = await screen.findByRole("textbox", { name: "Path" });
+    await user.type(path, "slow.csv");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    // The superseded request's rejection must not end the replacement run.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("The query was cancelled.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Running…" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(signals[1]?.aborted).toBe(true);
+    expect(await screen.findByText("The query was cancelled.")).toBeInTheDocument();
+  });
+
+  it("moves between frame tabs with the arrow keys, Home and End (AC4)", async () => {
+    const user = userEvent.setup();
+    const named = (name: string) => ({ ...wireFrame, schema: { ...wireFrame.schema, name } });
+    renderApp(
+      "/explore?path=x.csv",
+      responder(() => ({
+        status: 200,
+        body: {
+          results: { A: { status: 200, frames: [named("one"), named("two"), named("three")] } },
+        },
+      })),
+    );
+    await user.click(await screen.findByRole("button", { name: "Run query" }));
+    const one = await screen.findByRole("tab", { name: "one" });
+    one.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "two" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "two" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("table", { name: "two, 2 rows" })).toBeInTheDocument();
+    await user.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "three" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "one" })).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("tab", { name: "three" })).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(screen.getByRole("tab", { name: "one" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("table", { name: "one, 2 rows" })).toBeInTheDocument();
+  });
+
   it("shows a frame tab per frame", async () => {
     const user = userEvent.setup();
     const second = { ...wireFrame, schema: { ...wireFrame.schema, name: "second" } };

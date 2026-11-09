@@ -318,9 +318,12 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
   Invalid input is reported inline (`aria-invalid`, `aria-describedby`) and nothing is sent.
 - AC3: Run (button, or Ctrl/⌘+Enter in the form) sends one same-origin `POST
   /api/v1/query` with `refId` `A`; while it runs the button is disabled and a Cancel button
-  aborts the request.
+  aborts the request. Running again while a query runs (the keyboard shortcut) aborts the
+  older request and replaces it; only the latest run may change the page, so the older
+  request's abort never shows "cancelled" or hides Cancel for the newer one.
 - AC4: on success the page shows each frame in the table panel (a tab per frame when there
-  are several) and a statistics line: rows, fields, the server-side query time (the
+  are several, following the WAI-ARIA tabs pattern: only the selected tab is in the Tab
+  order, and ←/→/↑/↓ (wrapping), Home and End move focus and select the frame) and a statistics line: rows, fields, the server-side query time (the
   result's `durationMs`, FR-016 AC10), the total request time measured in the browser, and
   the executed query. The two durations are labelled separately (as in the Grafana Explore
   inspector's "query time" vs "total request time"), so network and rendering cost can be

@@ -119,9 +119,11 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
         },
         ctrl.signal,
       );
-      if (ctrl.signal.aborted) return;
+      if (ctrl.signal.aborted || abortRef.current !== ctrl) return;
       setRun({ kind: "done", outcome, durationMs: Math.round(performance.now() - started) });
     } catch (e) {
+      // A newer run replaced this one (FR-018 AC3): its state belongs to that run.
+      if (abortRef.current !== ctrl) return;
       if (ctrl.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) {
         setRun({ kind: "cancelled" });
         return;
@@ -352,6 +354,8 @@ function Result({
         })}
       </p>
       {outcome.frames.length > 1 ? (
+        // WAI-ARIA tabs pattern (FR-018 AC4): only the selected tab is in the Tab order,
+        // so the arrow keys, Home and End move between frames and select them.
         <div role="tablist" aria-label={t("explore.frames")} className="flex flex-wrap gap-1">
           {outcome.frames.map((f, i) => (
             <button
@@ -362,6 +366,23 @@ function Result({
               aria-selected={i === idx}
               aria-controls={`${ids}-panel`}
               tabIndex={i === idx ? 0 : -1}
+              onKeyDown={(e) => {
+                const n = outcome.frames.length;
+                const target = (
+                  {
+                    ArrowRight: (idx + 1) % n,
+                    ArrowDown: (idx + 1) % n,
+                    ArrowLeft: (idx - 1 + n) % n,
+                    ArrowUp: (idx - 1 + n) % n,
+                    Home: 0,
+                    End: n - 1,
+                  } as Record<string, number | undefined>
+                )[e.key];
+                if (target === undefined) return;
+                e.preventDefault();
+                setFrameIdx(target);
+                document.getElementById(`${ids}-tab-${String(target)}`)?.focus();
+              }}
               onClick={() => {
                 setFrameIdx(i);
               }}
