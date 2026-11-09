@@ -9,7 +9,11 @@
   "tags": [
     { "name": "system", "description": "Health, readiness and build information" },
     { "name": "meta", "description": "API description" },
-    { "name": "plugins", "description": "Data-source and format plugins (ADR-0002)" }
+    { "name": "plugins", "description": "Data-source and format plugins (ADR-0002)" },
+    {
+      "name": "query",
+      "description": "Run queries against provisioned data sources (FR-016, FR-017). Off by default until authentication ships (NFR-SEC-016)."
+    }
   ],
   "paths": {
     "/healthz": {
@@ -56,6 +60,93 @@
         "responses": {
           "200": { "description": "Plugin catalogue", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PluginCatalog" } } } },
           "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/v1/datasources": {
+      "get": {
+        "tags": ["query"],
+        "operationId": "listDataSources",
+        "summary": "Provisioned data sources",
+        "description": "Provisioned data-source instances sorted by uid: identity only, never settings (FR-017 AC3). Answers 404 unless queryApiEnabled is set (NFR-SEC-016).",
+        "responses": {
+          "200": {
+            "description": "Data sources",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["datasources"],
+                  "properties": { "datasources": { "type": "array", "items": { "$ref": "#/components/schemas/DataSourceSummary" } } }
+                }
+              }
+            }
+          },
+          "403": { "description": "host_not_allowed: the Host is not a loopback name while the API is loopback-only (NFR-SEC-017)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Query API disabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/v1/query": {
+      "post": {
+        "tags": ["query"],
+        "operationId": "runQueries",
+        "summary": "Run queries",
+        "description": "Runs 1-20 refId-tagged queries (at most 4 concurrently, each with the query timeout and the host row limit; the host byte limit is one budget shared by all queries of the request, and a query that starts after it is used up answers 413 budget_exhausted, FR-016 AC9) and returns frames per refId. 200 when all succeed, the shared status when all fail alike, otherwise 207 Multi-Status (FR-016). Answers 404 unless queryApiEnabled is set (NFR-SEC-016).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/QueryRequest" },
+              "example": { "queries": [{ "refId": "A", "datasource": { "uid": "samples" }, "query": { "path": "sales.csv" } }] }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "All queries succeeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResponse" } } } },
+          "207": {
+            "description": "Some queries failed; see each result's status",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResponse" } } }
+          },
+          "400": {
+            "description": "Invalid request (error envelope), or every query failed with 400 (QueryResponse)",
+            "content": {
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/Error" }, { "$ref": "#/components/schemas/QueryResponse" }] } }
+            }
+          },
+          "403": {
+            "description": "host_not_allowed (non-loopback Host while loopback-only) or cross_site_request (cross-site Sec-Fetch-Site or a foreign Origin), NFR-SEC-017",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "404": {
+            "description": "Query API disabled (error envelope), or every query failed with 404 (QueryResponse)",
+            "content": {
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/Error" }, { "$ref": "#/components/schemas/QueryResponse" }] } }
+            }
+          },
+          "413": {
+            "description": "Request body too large (error envelope), or every query hit the file size limit",
+            "content": {
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/Error" }, { "$ref": "#/components/schemas/QueryResponse" }] } }
+            }
+          },
+          "415": {
+            "description": "Content-Type is not application/json (error envelope), or every query named an unsupported format",
+            "content": {
+              "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/Error" }, { "$ref": "#/components/schemas/QueryResponse" }] } }
+            }
+          },
+          "422": {
+            "description": "Every query failed to decode its input",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResponse" } } }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": {
+            "description": "Every query failed unexpectedly",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResponse" } } }
+          },
+          "504": { "description": "Every query timed out", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResponse" } } } }
         }
       }
     },
@@ -140,6 +231,72 @@
               "code": { "type": "string", "examples": ["not_found", "rate_limited", "internal"] },
               "message": { "type": "string" },
               "requestId": { "type": "string" }
+            }
+          }
+        }
+      },
+      "DataSourceSummary": {
+        "type": "object",
+        "required": ["uid", "type", "name"],
+        "properties": { "uid": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$" }, "type": { "type": "string" }, "name": { "type": "string" } }
+      },
+      "QueryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["queries"],
+        "properties": {
+          "queries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["refId", "datasource"],
+              "properties": {
+                "refId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "description": "Unique within the request" },
+                "datasource": { "type": "object", "additionalProperties": false, "required": ["uid"], "properties": { "uid": { "type": "string" } } },
+                "query": { "type": "object", "description": "The plugin's query model, e.g. {\"path\":\"sales.csv\"} for the file source" },
+                "maxRows": { "type": "integer", "minimum": 0, "description": "Lowers the host row limit; can never raise it" }
+              }
+            }
+          },
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" }
+        }
+      },
+      "QueryResponse": {
+        "type": "object",
+        "required": ["results"],
+        "properties": { "results": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/QueryResult" } } }
+      },
+      "QueryResult": {
+        "type": "object",
+        "required": ["status", "durationMs"],
+        "properties": {
+          "status": { "type": "integer" },
+          "durationMs": { "type": "integer", "minimum": 0, "description": "Milliseconds the query took inside the service; 0 if it never started (FR-016 AC10)" },
+          "frames": { "type": "array", "items": { "type": "object", "description": "Data frame in the FR-010 wire format: {schema, data}" } },
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "datasource_not_found",
+                  "invalid_query",
+                  "not_found",
+                  "too_large",
+                  "budget_exhausted",
+                  "unsupported_format",
+                  "decode_failed",
+                  "timeout",
+                  "cancelled",
+                  "query_failed"
+                ]
+              },
+              "message": { "type": "string" }
             }
           }
         }

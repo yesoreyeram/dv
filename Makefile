@@ -33,9 +33,12 @@ build-web: ## Build the SPA into web/dist
 	pnpm --filter web run build
 
 ## ---------- run ----------
-.PHONY: run dev
+.PHONY: run run-query dev
 run: build ## Build and run the single binary serving API + UI on $(ADDR)
 	DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text DV_FILE_ROOTS=$(FILE_ROOTS) ./bin/dv
+
+run-query: build ## Like run, plus the loopback-only query API over deploy/samples (FR-016, deploy/query-demo.json)
+	DV_CONFIG_FILE=deploy/query-demo.json DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text DV_FILE_ROOTS=$(FILE_ROOTS) ./bin/dv
 
 dev: ## Run the API (go run) and the Vite dev server with HMR (proxying /api)
 	@trap 'kill 0' EXIT; \

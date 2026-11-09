@@ -17,6 +17,7 @@ import (
 	"github.com/yesoreyeram/dv/internal/health"
 	"github.com/yesoreyeram/dv/internal/httpx"
 	"github.com/yesoreyeram/dv/internal/plugin"
+	"github.com/yesoreyeram/dv/internal/query"
 )
 
 // Options configures a Server.
@@ -28,6 +29,10 @@ type Options struct {
 	// Plugins is the compiled-in plugin registry. When nil an empty, frozen registry is
 	// used. The registry's readiness check is registered as "plugins" (FR-015 AC3).
 	Plugins *plugin.Registry
+	// Query runs POST /api/v1/query and lists GET /api/v1/datasources (FR-016, FR-017).
+	// Both endpoints answer 404 unless Config.QueryAPIEnabled is set and Query is
+	// non-nil (NFR-SEC-016).
+	Query *query.Service
 	// ExtraRoutes lets tests register additional routes behind the full middleware chain.
 	ExtraRoutes func(mux *http.ServeMux)
 }
@@ -39,6 +44,7 @@ type Server struct {
 	health  *health.Registry
 	build   buildinfo.Info
 	plugins *plugin.Registry
+	query   *query.Service
 	handler http.Handler
 }
 
@@ -72,6 +78,9 @@ func New(opts Options) (*Server, error) {
 	// briefly reusing one evaluation instead (FR-002 AC5).
 	opts.Health.SetCacheTTL(opts.Config.ReadinessCacheTTL.Std())
 	s := &Server{cfg: opts.Config, log: opts.Logger, health: opts.Health, build: opts.Build, plugins: opts.Plugins}
+	if opts.Config.QueryAPIEnabled {
+		s.query = opts.Query
+	}
 
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -121,6 +130,8 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/readyz", s.readiness},
 		{http.MethodGet, "/api/v1/version", s.version},
 		{http.MethodGet, "/api/v1/plugins", s.pluginCatalog},
+		{http.MethodGet, "/api/v1/datasources", s.dataSources},
+		{http.MethodPost, "/api/v1/query", s.runQuery},
 		{http.MethodGet, "/api/openapi.json", s.openapi},
 	}
 }

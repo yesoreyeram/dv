@@ -1,0 +1,6 @@
+{
+  "queryApiEnabled": true,
+  "datasources": [
+    { "uid": "samples", "type": "file", "name": "Sample files", "jsonData": { "root": "samples" } }
+  ]
+}
