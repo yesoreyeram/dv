@@ -3,6 +3,7 @@ package cipolicy
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,15 @@ func TestCheckScript(t *testing.T) {
 		{"go test -run is not go run", "go test -run TestX example.com/a/b@latest", nil},
 		{"go -C dir test", "go -C run test ./...", nil},
 		{"bare go", "go", nil},
+		{"go -C quoted dir with space", `go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@latest ./...`, []string{RuleGoToolUnpinned}},
+		{"go -C single-quoted separator", `go -C 'a;b' run golang.org/x/vuln/cmd/govulncheck@latest ./...`, []string{RuleGoToolUnpinned}},
+		{"go -C escaped space", `go -C a\ b install github.com/example/tool@main`, []string{RuleGoToolUnpinned}},
+		{"go run in command substitution", `v=$(go run golang.org/x/vuln/cmd/govulncheck@latest)`, []string{RuleGoToolUnpinned}},
+		{"go run in backticks", "v=`go run golang.org/x/vuln/cmd/govulncheck@latest`", []string{RuleGoToolUnpinned}},
+		{"quoted package", `go run "golang.org/x/vuln/cmd/govulncheck@latest"`, []string{RuleGoToolUnpinned}},
+		{"go -C quoted dir pinned", `go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`, nil},
+		{"echo mentioning go run is a separate word list", `echo "go run x.org/y/z@latest"`, nil},
+		{"cargo is not go", "cargo run x.org/y/z@latest", nil},
 		{"go run ldflags with @", "go run -ldflags=-X=main.by=ci@example.com ./cmd/dv", nil},
 		{"go run pinned", "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...", nil},
 		{"go run prerelease", "go run example.com/t@v0.0.0-20240101000000-abcdefabcdef", nil},
@@ -224,5 +234,26 @@ func TestRepositoryWorkflows(t *testing.T) {
 	}
 	for _, f := range got {
 		t.Error(f)
+	}
+}
+
+func TestShellCommands(t *testing.T) {
+	cases := []struct {
+		in   string
+		want [][]string
+	}{
+		{`a b; c`, [][]string{{"a", "b"}, {"c"}}},
+		{`a "b c" 'd;e' f\ g`, [][]string{{"a", "b c", "d;e", "f g"}}},
+		{`a "x\"y" "" b`, [][]string{{"a", `x"y`, "", "b"}}},
+		{"a | b && c\nd", [][]string{{"a"}, {"b"}, {"c"}, {"d"}}},
+		{"x=$(go run p) `q`", [][]string{{"x=$"}, {"go", "run", "p"}, {"q"}}},
+		{`"unterminated`, [][]string{{"unterminated"}}},
+		{`trailing\`, [][]string{{"trailing"}}},
+	}
+	for _, tc := range cases {
+		got := shellCommands(tc.in)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("shellCommands(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
