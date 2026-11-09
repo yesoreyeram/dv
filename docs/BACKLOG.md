@@ -24,7 +24,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-023 | Local users, Argon2id, sessions, CSRF | M3 | FR-020 | Todo |
 | B-024 | RBAC middleware + roles | M3 | FR-021, NFR-SEC-003 | Todo |
 | B-025 | Envelope encryption for secrets + slog redaction handler | M3 | FR-022, NFR-SEC-002 | Todo |
-| B-030 | Bump Go to latest stable (1.25+/1.26+) once the build environment can download it; CI already also tests on `stable` | M0 | NFR-MAINT-001 | Todo |
+| B-030 | Bump Go from 1.24.7 (out of support since 2026-02-10) to the supported 1.27.3, golangci-lint 2.5.0 → 2.15.0 (Go 1.27 support since 2.13), image `golang:1.27-alpine`; keep the Go minor supported (NFR-MAINT-007 AC6) | M0 | NFR-MAINT-007 AC6, NFR-SEC-010 | In review (PR #14) |
 | B-031 | Benchmarks for health endpoints (`make bench`) + 500 rps open-loop load tests (`internal/loadtest`, `make perf`, isolated CI step) | M1 | NFR-PERF-001 | Done (merged in #2–#4) |
 | B-032 | Bundle-size budget check in CI (initial JS 250 KB / CSS 50 KB gzip, `make size`) | M1 | NFR-PERF-004 | Done (merged in #2–#4) |
 | B-033 | Enforce `go mod tidy -diff` in CI (go.sum lacks hashes for test-only deps of godog because this run's sandbox could not reach proxy.golang.org) | M0 | NFR-SEC-014 | Todo |
@@ -54,3 +54,4 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-057 | CI supply-chain policy: `internal/cipolicy` test over `.github/workflows` (downloads verified by committed SHA-256, no `curl\|tar`/`curl\|sh`, exact `go run` versions, `uses:` tag/SHA), gitleaks download verified, govulncheck pinned to v1.9.0, pinned+verified actionlint job | M0 | NFR-SEC-015 | In review (PR #14) |
 | B-058 | Pin third-party actions to commit SHAs (with the tag as a comment) so Dependabot proposes digest updates; residual risk of mutable major tags in F-09 | M0 | NFR-SEC-015 AC3 | Todo |
 | B-059 | Keep CI tool hashes current: Renovate regex manager (or a scheduled check) for the gitleaks/actionlint version + SHA-256 pairs in `ci.yml` | M0 | NFR-SEC-015, NFR-MAINT-008 | Todo |
+| B-060 | govulncheck scanned go1.26.10's standard library (silent `GOTOOLCHAIN=auto` switch) instead of the go1.24.7 we build with, so the gate's "No vulnerabilities found" did not cover the shipped binary: run it as `GOTOOLCHAIN=local … -show version`, enforced by `check-toolchain.sh` | M0 | NFR-SEC-015 AC6 | In review (PR #14) |

@@ -94,8 +94,9 @@ instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → p
 
 Toolchain dependency: `os.Root` in Go 1.24.0 let a symlink to `../` inside a root reach
 files in the parent directory (caught by `TestOpenErrors` in CI's minimum-version job).
-`go.mod` therefore requires Go ≥ 1.24.7, so dv cannot be built with an affected
-standard library; CI keeps testing both that minimum and `stable`.
+`go.mod` therefore required Go ≥ 1.24.7, so dv could not be built with an affected
+standard library. Go 1.24 is out of support since 2026-02-10, so `go.mod` now requires the
+supported Go 1.27.3 (NFR-MAINT-007 AC6); CI keeps testing both that pin and `stable`.
 
 Residual risks: CSV formula injection matters on *export* (not implemented yet; the
 exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
@@ -131,6 +132,7 @@ written by anyone who can open a PR (including Dependabot and, for public repos,
 | T | An action reference follows a moving branch | `uses:` must name a tag or commit SHA (AC3). Residual: major tags such as `@v4` are mutable upstream; SHA pinning with Dependabot digest updates is tracked as B-058. | `ci_supply_chain.feature` |
 | T | The build toolchain stays on a Node line after it leaves Active LTS, so security fixes arrive later and stop at end of life, while Dependabot never proposes the next major | Node pinned to the current Active LTS (26) in `mise.toml`, CI and the Dockerfile; odd majors ignored; a move to maintenance LTS creates a planned migration (NFR-MAINT-007 AC4). Residual: the Active LTS date is checked by review, not by CI. | `toolchain.feature`; `scripts/check-toolchain.sh` |
 | T | One toolchain declaration drifts (CI on Node 22 while the image builds with 26), so what CI tested is not what ships | `check-toolchain.sh` compares every declaration with `mise.toml` and fails CI; each rule has a scenario that changes one file in a copy of the repo (AC5). | `toolchain.feature` |
+| T | The vulnerability gate reports "No vulnerabilities found" for a toolchain we do not ship: `govulncheck@v1.9.0` needs Go ≥ 1.26, so with `GOTOOLCHAIN=auto` the go command switched to go1.26.10 and set `GOROOT` for the tool, while the binary was built with the unsupported go1.24.7 (seen in PR #14's CI log) | Build toolchain moved to the supported Go 1.27.3 (NFR-MAINT-007 AC6); govulncheck runs as `GOTOOLCHAIN=local … -show version`, so a version gap fails the job and the log shows the scanned Go version (NFR-SEC-015 AC6). Residual: Go minor support dates are checked by review and the backlog, not by CI. | `toolchain.feature`; `scripts/check-toolchain.sh`; CI govulncheck log |
 | E | A malformed workflow expression or shell bug in `run:` widens what a step does (e.g. untrusted `${{ }}` interpolation into a script) | `actionlint` + shellcheck on every PR, including its script-injection check (AC4). | CI `Workflow lint (actionlint)` job |
 
 ## Planned features (threats to model at implementation time)
