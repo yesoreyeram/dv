@@ -1,0 +1,9 @@
+$ curl -s 127.0.0.1:8080/api/v1/plugins | jq -c "[.formats[].id]"
+["csv","json","ndjson","tsv"]
+
+$ # JSON with rowsPath + flatten
+{"status":200,"fields":["name:string","tier:number","healthy:bool","lastDeploy:time","owner.team:string","owner.oncall:string","regions:json","p95Ms:number"]}
+
+$ # NDJSON (maxRows 2), bad rowsPath, missing key in one request
+HTTP 207
+{"A":{"status":200,"error":null,"truncated":true},"B":{"status":400,"error":"services.json: invalid format options: rowsPath must be dot-separated keys of letters, digits, '_' or '-'","truncated":null},"C":{"status":422,"error":"services.json: rowsPath \"data.items\": key \"items\" not found: decode failed","truncated":null}}
