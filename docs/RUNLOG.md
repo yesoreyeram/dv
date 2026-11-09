@@ -316,3 +316,28 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Evidence (Go 1.27.3 cannot be downloaded here, so a scratch `-modfile` with go 1.24.7): `go test -race -count=1 ./...` all ok (incl. godog); golangci-lint v2.15.0 (release tarball, SHA-256 verified) 0 issues; ESLint/tsc/Prettier clean; Vitest 162/162; UI BDD 38/38. Prototype `make run-query` + curl (207 with NDJSON/bad rowsPath/missing key). Screenshots in `docs/screenshots/feat-json-source/`.
 - Next: B-016 line chart (FR-014), B-068 sidebar height, B-072 golangci-lint install via `fetch-verified.sh`.
 - 2026-11-09 ~06:55 UTC follow-up: the merge bot merged [PR #19](https://github.com/yesoreyeram/dv/pull/19) on green CI while three Codex P2 findings were open. All three reproduced as failing tests (unit + 3 `json.feature` scenarios, 3 failed before, 53/53 after): (1) with `flatten`, a literal `"a.b"` key and the path `a` → `b` merged into one field, dropping a value. Columns are now keyed by the encoded member path, and display names are de-duplicated (`a.b`, `a.b (2)`). (2) A single-value document refused by the byte limit came back empty with `truncated: false`; it is now marked truncated with the notice. (3) An unsupported `fieldTypes` override on JSON/NDJSON answered 500; it now wraps `plugin.ErrOptions` (400 `invalid_query`), like CSV in #17. Fixed in a follow-up PR from `fix/json-codex-findings`.
+
+## 2026-11-09 ~18:05–18:55 UTC — B-072 CI tool-install resilience (PR from `fix/ci-tool-install-resilience`)
+- **Process incident, owned:** this run started from a checkout and PR listing that were hours stale. They showed `main` at 0397a44 and #14 open at 16f2a5b. Acting on that, it did three things:
+  - pushed three obsolete commits (a `GOTOOLCHAIN: auto` change for govulncheck, already superseded by #14's Go 1.27.3 / `GOTOOLCHAIN=local` approach) to `fix/reland-csv-limit-and-repo-automation`, which re-created that already-merged branch;
+  - overwrote the description of merged PR #14;
+  - noticed the problem only when `enable_pr_auto_merge` answered "already merged".
+- **Repairs:** #14's description was restored from the last copy this run had read, with a correction note at the top. Deleting the re-created branch was refused by the sandbox, so it still exists. It is not referenced by any PR, and the owner can delete it. Lesson for later runs: re-fetch and re-list open PRs right before acting, and never edit a PR without confirming it is still open.
+- Triage (fresh): no open PRs, no open issues; `main` at 6be42b5. The repo is clean, so a new PR is allowed.
+- Planned: B-072. On 2026-11-09, PR #18's CI went red twice because `golangci-lint-action` got 504s from GitHub Releases.
+- Requirements first (e8885b0): NFR-SEC-015 AC7, plus 2 new `ci_supply_chain.feature` scenarios (4 × 504 then success; a 404 is not retried) and updated toolchain drift and bump rows. 3 scenarios failed before the change.
+- Shipped:
+  - CI builds golangci-lint with `go install …/golangci-lint@v2.15.0`. The binary comes from the Go module proxy and is verified by sumdb.
+  - This deliberately differs from the backlog's plan to use `fetch-verified.sh`. That plan would need a committed SHA-256, which Renovate cannot bump, so toolchain PRs would stop passing unattended (NFR-MAINT-008 AC1).
+  - `fetch-verified.sh` now uses `--retry 8 --retry-max-time 240 --retry-connrefused --connect-timeout 20`.
+  - `check-toolchain.sh` and the Renovate regex now read the `go install` pin.
+- Evidence (a scratch `-modfile` with go 1.24.7, because Go 1.27.3 cannot be downloaded here):
+  - `go test -race ./...` all ok;
+  - repo BDD 86/86;
+  - golangci-lint v2.15.0 (fetched with the helper, hash verified) 0 issues;
+  - `check-toolchain.sh` consistent;
+  - Renovate regexes extract 2.15.0, 1.27.3 and 10.28.0;
+  - the app builds and runs: `/readyz` reports ready, 0 console errors.
+  - Screenshots are in `docs/screenshots/fix-ci-tool-install-resilience/`.
+- Not verified locally: the `go install` step itself, which needs Go ≥ 1.26 (CI runs it); actionlint and shellcheck.
+- Next: B-016 line chart (FR-014), B-068 sidebar height, B-059.

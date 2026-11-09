@@ -30,7 +30,7 @@
       "description": "CI golangci-lint version follows mise.toml golangci-lint",
       "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
       "matchStrings": [
-        "golangci-lint-action@\\S+\\s+with:\\s+version: v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+        "github\\.com/golangci/golangci-lint/v2/cmd/golangci-lint@v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "github-releases",

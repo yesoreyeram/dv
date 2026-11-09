@@ -28,7 +28,9 @@ tmp=$(mktemp "$dir/.fetch-verified.XXXXXX")
 trap 'rm -f -- "$tmp"' EXIT
 
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-  --tlsv1.2 --retry 3 --max-time 300 --output "$tmp" -- "$url"
+  --tlsv1.2 --connect-timeout 20 --max-time 300 \
+  --retry 8 --retry-max-time 240 --retry-connrefused \
+  --output "$tmp" -- "$url"
 
 if command -v sha256sum >/dev/null 2>&1; then
   got=$(sha256sum -- "$tmp" | cut -d' ' -f1)
