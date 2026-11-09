@@ -18,6 +18,41 @@
 5. **Open a PR** that lists the FR/NFR IDs, security considerations, test evidence,
    screenshots (`docs/screenshots/<branch>/`) and follow-ups, and updates
    `docs/RUNLOG.md` and `docs/BACKLOG.md`.
+6. **Merging.** PRs target `main` and merge automatically (squash) once the `CI` workflow
+   is green for the PR's current head commit and the author is allow-listed
+   ([`automerge.yml`](.github/workflows/automerge.yml), NFR-MAINT-006). Add the `hold`
+   label to keep a PR open for review. Do not stack PRs on feature branches: a PR whose
+   base branch merged first never reaches `main` (this happened to PR #5). If you must
+   stack, retarget the child to `main` as soon as the parent merges.
+
+## Toolchain
+
+[`mise.toml`](mise.toml) pins Go, Node (LTS), pnpm and golangci-lint. With
+[mise](https://mise.jdx.dev) installed, `mise install` sets them up; `make check-toolchain`
+(also in CI) fails when `mise.toml`, `go.mod`, `package.json`, the Dockerfile and CI
+disagree (NFR-MAINT-007). Dependabot updates Go modules, npm packages, GitHub Actions and
+Docker images (grouped, weekly); Renovate updates only the toolchain pins (`mise.toml` and the `go.mod` `go`
+directive, `packageManager` and CI golangci-lint that must match it) in one grouped PR
+(NFR-MAINT-008).
+
+### CI tools (NFR-SEC-015)
+
+Workflows may only run tools that are pinned and verified, and `make lint-workflows`
+(also a unit test in CI) enforces it:
+
+- Files are downloaded only with `scripts/fetch-verified.sh <https-url> <sha256> <output>`,
+  with the SHA-256 written as a literal in the workflow. The helper fetches into a
+  temporary file and creates `<output>` only if the hash matches, so an unverified file
+  never exists. Any other `curl`, `wget`, `aria2c` or `gh release download` in a `run:`
+  script is rejected. To bump such a tool, change the version and take the new hash from
+  the release's checksums file.
+- `go run`/`go install` of an external tool uses an exact `@vX.Y.Z`, never `@latest`.
+- `uses:` names a tag (`@v4`) or a 40-character commit SHA; `docker://` images need an
+  `@sha256:` digest.
+
+CI also runs [actionlint](https://github.com/rhysd/actionlint) (with shellcheck) on every
+workflow; install it locally (`mise use -g actionlint`, `brew install actionlint`) and
+`make lint-workflows` runs it too.
 
 ## Standards
 

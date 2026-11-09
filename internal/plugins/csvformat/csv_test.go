@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"runtime"
 	"strconv"
 	"strings"
@@ -178,23 +179,63 @@ func TestRowLimit(t *testing.T) {
 }
 
 func TestByteLimit(t *testing.T) {
-	// Reader stop: raw records cost len+16 per cell, so 12-digit integers cost 28 bytes
-	// raw but only 24 in the frame. 100 bytes holds 3 raw records; the 4th trips the
-	// reader's byte limit before the builder's.
+	// The byte limit is the result budget on converted values (FR-011 AC8): 12-digit
+	// integers cost 28 bytes of text but 24 in the frame, so 100 bytes keeps 4 rows. The
+	// raw text of those 4 rows (112 bytes) is over the limit but within the 2x read buffer.
 	var b strings.Builder
 	b.WriteString("v\n")
 	for i := range 50 {
 		fmt.Fprintf(&b, "%d\n", 100000000000+i)
 	}
 	fr := decode(t, NewCSV(), b.String(), plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 100}})
-	if fr.Rows() != 3 || !fr.Meta.Truncated || len(fr.Meta.Notices) != 1 || !strings.Contains(fr.Meta.Notices[0].Text, "byte limit") {
+	if fr.Rows() != 4 || !fr.Meta.Truncated || len(fr.Meta.Notices) != 1 || !strings.Contains(fr.Meta.Notices[0].Text, "byte limit") {
 		t.Fatalf("rows %d meta %+v", fr.Rows(), fr.Meta)
 	}
-	// Builder stop: a 4-byte string costs 20 raw but 36 in the frame (slot + header), so
-	// the builder stops first at 41 bytes, and only one notice is added.
+	// Builder stop on strings: a 4-byte string costs 20 raw but 36 in the frame (slot +
+	// header), so the builder stops first at 41 bytes, and only one notice is added.
 	fr = decode(t, NewCSV(), "s\naaaa\nbbbb\ncccc\n", plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 41}})
 	if fr.Rows() != 1 || !fr.Meta.Truncated || len(fr.Meta.Notices) != 1 {
 		t.Fatalf("rows %d notices %+v", fr.Rows(), fr.Meta.Notices)
+	}
+}
+
+// TestByteLimitCountsConvertedValues is the Codex P2 case: one int64 whose text (35 bytes
+// raw) is larger than its converted cost (24 bytes) fits a 24-byte limit exactly.
+func TestByteLimitCountsConvertedValues(t *testing.T) {
+	for _, in := range []string{"v\n1234567890123456789\n", "v\n-1.2345678901234567e-30\n", "v\nfalse\n", "v\n2026-11-01T00:00:00.123456789+05:30\n"} {
+		fr := decode(t, NewCSV(), in, plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 40}})
+		if fr.Rows() != 1 || fr.Meta.Truncated || fr.Fields[0].Type == frame.TypeString {
+			t.Errorf("%q: rows %d type %s meta %+v", in, fr.Rows(), fr.Fields[0].Type, fr.Meta)
+		}
+	}
+	fr := decode(t, NewCSV(), "v\n1234567890123456789\n", plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 24}})
+	if fr.Rows() != 1 || fr.Meta.Truncated || fr.Fields[0].Type != frame.TypeNumber {
+		t.Fatalf("rows %d type %s meta %+v", fr.Rows(), fr.Fields[0].Type, fr.Meta)
+	}
+}
+
+// TestRawBufferGuard covers the separate guard on raw records: long text that an override
+// turns into 16-byte nulls costs little in the frame but must not be buffered unbounded.
+func TestRawBufferGuard(t *testing.T) {
+	junk := strings.Repeat("x", 100) // 116 bytes raw, 16 bytes as a null
+	in := "v\n" + strings.Repeat(junk+"\n", 10)
+	opts := plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: 200}, FieldTypes: map[string]frame.FieldType{"v": frame.TypeNumber}}
+	fr := decode(t, NewCSV(), in, opts)
+	// 2 x 200 = 400 bytes of raw records: 3 records (348) fit, the 4th does not.
+	if fr.Rows() != 3 || !fr.Meta.Truncated {
+		t.Fatalf("rows %d meta %+v", fr.Rows(), fr.Meta)
+	}
+	found := false
+	for _, n := range fr.Meta.Notices {
+		found = found || strings.Contains(n.Text, "read buffer of 400 bytes")
+	}
+	if !found {
+		t.Fatalf("no read-buffer notice in %+v", fr.Meta.Notices)
+	}
+	// A limit near MaxInt64 must not overflow the guard into a negative budget.
+	fr = decode(t, NewCSV(), "v\n1\n", plugin.DecodeOptions{Limits: frame.Limits{MaxBytes: math.MaxInt64}})
+	if fr.Rows() != 1 || fr.Meta.Truncated {
+		t.Fatalf("huge limit: rows %d meta %+v", fr.Rows(), fr.Meta)
 	}
 }
 

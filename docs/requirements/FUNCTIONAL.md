@@ -192,7 +192,13 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
 - AC8: host row/byte limits (NFR-PERF-003) apply; truncation sets `meta.truncated` with a
   notice. A limit the query leaves at zero is replaced by the source default (host-set,
   else 1,000,000 rows / 64 MiB estimated frame memory), so no query decodes unbounded.
-  Decoding honours context cancellation.
+  The byte limit is the *result* budget and is counted on converted values only: a row that
+  fits once converted is kept even if its text is longer (a 19-digit integer costs 24 bytes,
+  not its 35-byte text). Raw records held for inference have their own guard of twice the
+  byte limit (cell length + 16 bytes each); it only trips for unusually verbose text (e.g.
+  numbers with dozens of digits, or long text an override turns into nulls), sets
+  `meta.truncated` and adds its own notice. Peak decode memory is therefore bounded by about
+  three times the byte limit. Decoding honours context cancellation.
 - AC9: errors never reveal the operator's absolute root path; they use the relative path
   and a stable error kind (invalid path, not found, not a regular file, too large,
   unsupported format) so the query API (B-014) can map them to HTTP statuses.

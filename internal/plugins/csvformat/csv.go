@@ -46,7 +46,7 @@ type Options struct {
 // Format decodes delimiter-separated values.
 type Format struct {
 	meta      plugin.FormatMeta
-	delimiter rune
+	delimiter byte
 }
 
 // NewCSV returns the comma-separated format plugin.
@@ -74,9 +74,11 @@ func NewTSV() *Format {
 // Meta implements plugin.Format.
 func (f *Format) Meta() plugin.FormatMeta { return f.meta }
 
+// delimiter and comment are single ASCII bytes (see asciiChar), so widening them to a
+// rune for encoding/csv is lossless and no narrowing conversion is needed.
 type settings struct {
-	delimiter rune
-	comment   rune
+	delimiter byte
+	comment   byte
 	header    bool
 }
 
@@ -92,14 +94,14 @@ func (f *Format) settings(raw json.RawMessage) (settings, error) {
 		return s, fmt.Errorf("%s options: %w", f.meta.ID, err)
 	}
 	if o.Delimiter != "" {
-		d, err := singleRune("delimiter", o.Delimiter)
+		d, err := asciiChar("delimiter", o.Delimiter)
 		if err != nil {
 			return s, err
 		}
 		s.delimiter = d
 	}
 	if o.Comment != "" {
-		c, err := singleRune("comment", o.Comment)
+		c, err := asciiChar("comment", o.Comment)
 		if err != nil {
 			return s, err
 		}
@@ -114,13 +116,13 @@ func (f *Format) settings(raw json.RawMessage) (settings, error) {
 	return s, nil
 }
 
-// singleRune accepts one printable ASCII character or tab. ASCII keeps the streaming
+// asciiChar accepts one printable ASCII character or tab. ASCII keeps the streaming
 // column guard exact (see columnGuard).
-func singleRune(name, v string) (rune, error) {
+func asciiChar(name, v string) (byte, error) {
 	if len(v) != 1 || v[0] == '"' || (v[0] != '\t' && (v[0] < 0x20 || v[0] > 0x7e)) {
 		return 0, fmt.Errorf("%s must be a single printable ASCII character or tab, other than a quote", name)
 	}
-	return rune(v[0]), nil
+	return v[0], nil
 }
 
 // Decode implements plugin.Format.
@@ -137,12 +139,12 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 	var rr recordReader
 	if f.meta.ID == "tsv" {
 		// TSV (IANA text/tab-separated-values) has no quoting: quotes are literal data.
-		rr = &tsvReader{br: bufio.NewReader(stripBOM(r)), delim: string(s.delimiter), comment: s.comment}
+		rr = &tsvReader{br: bufio.NewReader(stripBOM(r)), delim: string(rune(s.delimiter)), comment: rune(s.comment)}
 	} else {
-		guard := &columnGuard{r: stripBOM(r), delim: byte(s.delimiter), comment: byte(s.comment), atLineStart: true, line: 1}
+		guard := &columnGuard{r: stripBOM(r), delim: s.delimiter, comment: s.comment, atLineStart: true, line: 1}
 		cr := csv.NewReader(guard)
-		cr.Comma = s.delimiter
-		cr.Comment = s.comment
+		cr.Comma = rune(s.delimiter)
+		cr.Comment = rune(s.comment)
 		cr.FieldsPerRecord = 0 // the first record fixes the width
 		rr = csvReader{cr}
 	}
@@ -157,15 +159,30 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 	}
 	if byteStop && !fr.Meta.Truncated {
 		fr.Meta.Truncated = true
-		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Result truncated at the byte limit of %d bytes.", opts.Limits.MaxBytes))
+		fr.AddNotice(frame.SeverityWarning, fmt.Sprintf("Input truncated: the raw records exceeded the read buffer of %d bytes (%d× the byte limit of %d bytes).", rawBufferFactor*opts.Limits.MaxBytes, rawBufferFactor, opts.Limits.MaxBytes))
 	}
 	return []*frame.Frame{fr}, nil
 }
 
+// rawBufferFactor sizes the guard on raw records held for inference, as a multiple of
+// the byte limit. The byte limit itself is the result budget and is applied by build on
+// converted values (FR-011 AC8); this guard only bounds the memory of the raw strings,
+// which can cost more than their converted values (a 19-digit integer is 35 bytes of text
+// but 24 bytes as an int64). Realistic numbers, times and bools stay under 2x, so the
+// result budget decides which rows are kept; only unusually verbose text trips the guard.
+const rawBufferFactor = 2
+
 // read returns the field names and up to MaxRows+1 records (the extra one lets the
-// builder detect truncation). byteStop reports that reading stopped at the byte limit.
+// builder detect truncation). byteStop reports that reading stopped at the raw-record
+// guard (rawBufferFactor x MaxBytes).
 func read(ctx context.Context, rr recordReader, header bool, lim frame.Limits) (names []string, records [][]string, byteStop bool, err error) {
 	var bytesRead int64
+	rawBudget := lim.MaxBytes
+	if rawBudget > math.MaxInt64/rawBufferFactor {
+		rawBudget = math.MaxInt64
+	} else {
+		rawBudget *= rawBufferFactor
+	}
 	for n := 0; ; n++ {
 		if names != nil && lim.MaxRows > 0 && len(records) > lim.MaxRows {
 			break // already holds the overflow record; later input is never parsed
@@ -193,7 +210,7 @@ func read(ctx context.Context, rr recordReader, header bool, lim frame.Limits) (
 		for _, c := range rec {
 			size += int64(len(c)) + 16
 		}
-		if lim.MaxBytes > 0 && bytesRead+size > lim.MaxBytes {
+		if lim.MaxBytes > 0 && bytesRead > rawBudget-size {
 			return names, records, true, nil
 		}
 		bytesRead += size

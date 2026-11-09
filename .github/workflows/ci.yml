@@ -37,7 +37,7 @@ jobs:
         if: matrix.go == 'go.mod'
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.5.0
+          version: v2.15.0
       - name: Unit tests (race + coverage)
         run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
       - name: Coverage gate (internal/ >= 80%)
@@ -58,8 +58,28 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # NFR-SEC-015 AC2: exact version, verified by go.sum/sumdb.
+      # AC6: GOTOOLCHAIN=local, so the scan covers the go.mod toolchain that builds the
+      # image. With auto, a tool needing a newer Go makes the go command switch toolchains
+      # and the scan then checks that toolchain's standard library instead of ours.
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: GOTOOLCHAIN=local go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -show version ./...
+
+  workflows:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # NFR-SEC-015 AC1/AC4: pinned release, SHA-256 committed here, verified before
+      # extraction. shellcheck is preinstalled on ubuntu-latest and actionlint uses it.
+      - name: actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          scripts/fetch-verified.sh "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 actionlint.tar.gz
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color
 
   web:
     name: Web (lint, typecheck, test, build, audit)
@@ -69,8 +89,10 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
+      - name: Toolchain pins consistent (NFR-MAINT-007)
+        run: ./scripts/check-toolchain.sh
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format:check
       - run: pnpm -r run lint
@@ -103,7 +125,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
@@ -130,8 +152,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: gitleaks
+        # NFR-SEC-015 AC1: pinned release, SHA-256 committed here; the helper writes the file only after it matches.
         run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | tar -xz gitleaks
+          scripts/fetch-verified.sh https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz \
+            a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git --redact --verbose --exit-code 1 .
 
   image:

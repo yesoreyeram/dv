@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build: web assets -> static Go binary -> distroless non-root runtime.
 
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /src
-RUN corepack enable
+# Node >= 25 no longer bundles corepack; install exactly the pnpm pinned in mise.toml and
+# package.json (checked by scripts/check-toolchain.sh, NFR-MAINT-007 AC2).
+RUN npm install -g --ignore-scripts pnpm@10.28.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web/package.json web/
 COPY e2e/package.json e2e/
@@ -11,7 +13,7 @@ RUN pnpm install --frozen-lockfile --filter web...
 COPY web/ web/
 RUN pnpm --filter web run build
 
-FROM golang:1.24-alpine AS go
+FROM golang:1.27-alpine AS go
 WORKDIR /src
 ARG VERSION=dev
 ARG COMMIT=unknown

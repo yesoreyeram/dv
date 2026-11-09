@@ -86,7 +86,7 @@ instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → p
 | S/R | A path with bidi controls (e.g. U+202E) displays as `report.csv` in errors, `meta.executedQuery`, the UI and future audit logs while naming a different file | Bidi controls rejected in `CleanPath` (FR-011 AC3); other control characters already were | `fsroot_test.go`, `file.feature` |
 | I | Reading devices, FIFOs or directories (e.g. a FIFO blocks forever, `/dev/zero` never ends) | Only regular files: mode checked on the opened handle; FIFOs opened non-blocking by `os.Root` are rejected before any read | `fsroot_test.go` |
 | T | TOCTOU: file swapped or grown between check and read | Size and type are checked with `Stat` on the opened handle, and the reader is capped at the limit (+1 byte to detect growth → error); after the cap trips the reader keeps returning `(0, ErrTooLarge)` so buffered/retrying consumers cannot panic on a negative count | `fsroot_test.go` |
-| D | Huge file, very long lines or a wide CSV exhausts memory | `fileMaxBytes` cap (default 64 MiB); 1024-column cap enforced by a streaming, quote-aware guard before `encoding/csv` allocates the record (a 1-record file of commas would otherwise allocate >100× its size); row/byte limits stop collection early and flag truncation, and a query that sets no limits gets the source defaults (1M rows / 64 MiB) instead of "unlimited"; context cancellation checked during decode | `csv_test.go`, `file.feature` |
+| D | Huge file, very long lines or a wide CSV exhausts memory | `fileMaxBytes` cap (default 64 MiB); 1024-column cap enforced by a streaming, quote-aware guard before `encoding/csv` allocates the record (a 1-record file of commas would otherwise allocate >100× its size); row/byte limits stop collection early and flag truncation (the byte limit is the result budget on converted values; raw records held for inference have a separate guard of 2× the byte limit, so peak decode memory is ≈ 3× the byte limit), and a query that sets no limits gets the source defaults (1M rows / 64 MiB) instead of "unlimited"; context cancellation checked during decode | `csv_test.go`, `file.feature` |
 | D | Crafted CSV whose columns change inferred type on different rows forces repeated full re-conversion (CPU/allocation amplification, quadratic in column count) | Inference streams over column-wise state and re-converts only the column whose type changed; each column changes type at most four times, so every cell is converted at most five times (a 182 KiB staggered 128-column file went from ~924 MiB allocated to ~22 MiB) | `csv_test.go` (`TestStaggeredTypeChangesStayLinear`) |
 | I | Error messages disclose the server's directory layout | Errors carry the relative path and a stable kind; the absolute root path is never included | `file_test.go` |
 | E | A query names a root the instance is not configured for | The root comes only from the instance's `jsonData.root`, never from the query body; unknown query keys are rejected | `file_test.go` |
@@ -94,8 +94,9 @@ instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → p
 
 Toolchain dependency: `os.Root` in Go 1.24.0 let a symlink to `../` inside a root reach
 files in the parent directory (caught by `TestOpenErrors` in CI's minimum-version job).
-`go.mod` therefore requires Go ≥ 1.24.7, so dv cannot be built with an affected
-standard library; CI keeps testing both that minimum and `stable`.
+`go.mod` therefore required Go ≥ 1.24.7, so dv could not be built with an affected
+standard library. Go 1.24 is out of support since 2026-02-10, so `go.mod` now requires the
+supported Go 1.27.3 (NFR-MAINT-007 AC6); CI keeps testing both that pin and `stable`.
 
 Residual risks: CSV formula injection matters on *export* (not implemented yet; the
 exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
@@ -108,6 +109,31 @@ creator must own or be able to read and write the target, so it grants nothing t
 could not already copy in. Operators should mount roots read-only (as `docker-compose.yml`
 does) and not give untrusted users write access to them. The same applies to symlinks
 inside a root that point at hidden files in that root.
+
+## F-09 Repository automation: merge bot, dependency updates, CI supply chain (NFR-MAINT-006…008, NFR-SEC-014/015)
+
+Trust boundary: GitHub Actions runner with a repository token ↔ pull-request content
+written by anyone who can open a PR (including Dependabot and, for public repos, forks).
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| S | A fork or unknown author gets code merged by the bot | Merge only same-repository PRs whose author is on an explicit allow-list (`DV_AUTOMERGE_AUTHORS`); fork PRs are skipped. | `automerge` unit tests; `automerge.feature` |
+| T | Commit pushed after CI passed is merged untested (race) | Run's `head_sha` must equal the PR's current head, and the merge call sends `sha` so GitHub refuses if the head moved. | `TestDecide*`, `TestRunMergesWithPinnedSHA` |
+| T | PR modifies the merge bot itself to merge something else | Workflow is `workflow_run`-triggered, so it runs the default-branch copy; it checks out the default branch, never the PR head, and executes no PR code. | Workflow review |
+| T | A failing or pending required check is ignored | Besides the `CI` run conclusion, every check run on the head SHA must be completed with `success`/`neutral`/`skipped`, and at least one must exist. | `automerge.feature` |
+| R | Nobody can tell why a PR was or was not merged | Every decision logs PR number, head SHA and reason; GitHub records the merge actor. | `TestRun*` log assertions |
+| I | Token leaks into logs | Token read from env only, sent only in the `Authorization` header to `GITHUB_API_URL`; error messages include status + path, never headers. | `TestRunNeverLogsToken` |
+| D | API hangs block the runner | 15 s HTTP timeout and a 5 min job timeout. | Unit test with slow server |
+| E | Token can do more than merge | Job permissions `contents: write`, `pull-requests: write`, `checks: read`, nothing else; workflow default `permissions: {}`. | Workflow review |
+| T | Stacked PR merges into an already-merged parent branch and its change never reaches `main` (happened to PR #5) | Bot merges only PRs targeting the default branch; owner setting "Automatically delete head branches" makes GitHub retarget stacked PRs to `main` when the parent merges. | `automerge.feature`; this PR re-lands #5 |
+| T | Malicious dependency release auto-merged | Only after full CI (tests, govulncheck, pnpm audit, gitleaks, image build); non-LTS Node majors ignored; owner can add `hold`. Residual: a compromised release that passes CI. | Dependabot config review |
+| T | A CI tool release asset is replaced, or the download is tampered with, and runs with the job's token (gitleaks, actionlint) | Exact version plus a SHA-256 literal committed in the workflow, passed to `scripts/fetch-verified.sh`, which writes the output only after the hash matches (no unverified file ever exists); every other downloader in a `run:` script is refused (NFR-SEC-015 AC1). Residual: downloaders the policy does not know (e.g. a Python one-liner) rely on review. | `internal/cipolicy` tests; `ci_supply_chain.feature` |
+| T | `go run tool@latest` silently picks up a new, possibly compromised tool version | Exact semver required, so the module is verified against sumdb and changes only by commit (AC2). | `ci_supply_chain.feature` |
+| T | An action reference follows a moving branch | `uses:` must name a tag or commit SHA (AC3). Residual: major tags such as `@v4` are mutable upstream; SHA pinning with Dependabot digest updates is tracked as B-058. | `ci_supply_chain.feature` |
+| T | The build toolchain stays on a Node line after it leaves Active LTS, so security fixes arrive later and stop at end of life, while Dependabot never proposes the next major | Node pinned to the current Active LTS (26) in `mise.toml`, CI and the Dockerfile; odd majors ignored; a move to maintenance LTS creates a planned migration (NFR-MAINT-007 AC4). Residual: the Active LTS date is checked by review, not by CI. | `toolchain.feature`; `scripts/check-toolchain.sh` |
+| T | One toolchain declaration drifts (CI on Node 22 while the image builds with 26), so what CI tested is not what ships | `check-toolchain.sh` compares every declaration with `mise.toml` and fails CI; each rule has a scenario that changes one file in a copy of the repo (AC5). | `toolchain.feature` |
+| T | The vulnerability gate reports "No vulnerabilities found" for a toolchain we do not ship: `govulncheck@v1.9.0` needs Go ≥ 1.26, so with `GOTOOLCHAIN=auto` the go command switched to go1.26.10 and set `GOROOT` for the tool, while the binary was built with the unsupported go1.24.7 (seen in PR #14's CI log) | Build toolchain moved to the supported Go 1.27.3 (NFR-MAINT-007 AC6); govulncheck runs as `GOTOOLCHAIN=local … -show version`, so a version gap fails the job and the log shows the scanned Go version (NFR-SEC-015 AC6). Residual: Go minor support dates are checked by review and the backlog, not by CI. | `toolchain.feature`; `scripts/check-toolchain.sh`; CI govulncheck log |
+| E | A malformed workflow expression or shell bug in `run:` widens what a step does (e.g. untrusted `${{ }}` interpolation into a script) | `actionlint` + shellcheck on every PR, including its script-injection check (AC4). | CI `Workflow lint (actionlint)` job |
 
 ## Planned features (threats to model at implementation time)
 

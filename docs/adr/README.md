@@ -12,3 +12,4 @@ immutable; supersede them with a new ADR instead of editing.
 | [0004](0004-security-model.md) | Security model | Accepted |
 | [0005](0005-observability.md) | Observability: slog now, OpenTelemetry seam | Accepted |
 | [0006](0006-testing-strategy.md) | Testing strategy: BDD first | Accepted |
+| [0007](0007-merge-automation.md) | Merge automation and dependency-update policy | Accepted |

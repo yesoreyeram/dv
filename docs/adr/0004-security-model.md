@@ -28,7 +28,9 @@ of every connected system, so security is a design constraint, not a feature.
    private-range blocking and redirect re-validation (M5); file access through `os.Root`
    (M2).
 6. **Supply chain:** minimal dependencies, lockfiles, govulncheck, gosec, pnpm audit,
-   gitleaks and Dependabot in CI; distroless non-root image.
+   gitleaks and Dependabot in CI; distroless non-root image. CI itself only runs pinned,
+   verified tools (SHA-256 for downloads, exact versions for `go run`, tag/SHA for
+   actions) and lints its workflows with actionlint (NFR-SEC-015).
 7. **Audit:** append-only audit log for security-relevant actions (M3/M7).
 8. **Process:** STRIDE entry per feature in `docs/security/THREAT_MODEL.md`; responsible
    disclosure in `SECURITY.md`.
