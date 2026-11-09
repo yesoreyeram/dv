@@ -52,10 +52,12 @@ var (
 	httpsArg   = regexp.MustCompile(`^https://\S+$`)
 	sha256Arg  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-	// A `go run`/`go install` command and all its arguments (up to the end of the command).
-	// Flags are not parsed: every module/path@version argument is checked instead, so a
-	// value-taking flag (-tags netgo, -C dir) cannot hide the package (NFR-SEC-015 AC2).
-	goTool    = regexp.MustCompile(`\bgo\s+(?:run|install)\b([^;&|\n]*)`)
+	// A `go` command and all its arguments (up to the end of the command). Whether it is
+	// `run`/`install` is decided by goSubcommand, so global flags placed before the
+	// subcommand (`go -C dir run …`) cannot hide it. Flags after the subcommand are not
+	// parsed: every module/path@version argument is checked instead, so a value-taking
+	// flag (-tags netgo) cannot hide the package (NFR-SEC-015 AC2).
+	goTool    = regexp.MustCompile(`\bgo((?:[ \t]+[^\s;&|]+)+)`)
 	exactSemv = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 
 	actionTag = regexp.MustCompile(`^v\d+(?:\.\d+){0,2}$`)
@@ -143,7 +145,11 @@ func CheckScript(name string, line int, script string) []Finding {
 		}
 	}
 	for _, m := range goTool.FindAllStringSubmatch(joined, -1) {
-		for _, tok := range strings.Fields(m[1]) {
+		args := strings.Fields(m[1])
+		if sub := goSubcommand(args); sub != "run" && sub != "install" {
+			continue
+		}
+		for _, tok := range args {
 			target := unquote(strings.Trim(tok, `"'`))
 			if strings.HasPrefix(target, "-") || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
 				continue // a flag, a local package or a path inside the checkout
@@ -158,6 +164,24 @@ func CheckScript(name string, line int, script string) []Finding {
 		}
 	}
 	return out
+}
+
+// goSubcommand returns the subcommand of a `go` command line given its arguments, skipping
+// the global flags that may precede it. `-C dir` is the only one that takes a separate
+// value; any other leading flag is skipped on its own. Quotes around a value are ignored.
+func goSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		a := unquote(strings.Trim(args[i], `"'`))
+		switch {
+		case a == "-C" || a == "--C":
+			i++ // the directory
+		case strings.HasPrefix(a, "-"):
+			// -C=dir or another flag without a separate value
+		default:
+			return a
+		}
+	}
+	return ""
 }
 
 func checkUses(ref string) (string, bool) {
