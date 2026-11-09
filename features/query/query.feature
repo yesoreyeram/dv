@@ -75,6 +75,13 @@ Feature: Query API over provisioned data sources
     Then the response status should be 400
     And result "A" has status 400 and error code "invalid_query"
 
+  Scenario: An unsupported fieldTypes override is a client error
+    Given the query API is enabled
+    When I query "files" with refId "A" and the query body {"path":"sales.csv","fieldTypes":{"amount":"integer"}}
+    Then the response status should be 400
+    And result "A" has status 400 and error code "invalid_query"
+    And the response body does not contain the root directory
+
   Scenario: A file over the size limit is 413
     Given the query API is enabled
     And the file size limit is 16 bytes

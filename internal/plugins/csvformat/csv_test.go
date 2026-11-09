@@ -153,7 +153,8 @@ func TestOverrides(t *testing.T) {
 		t.Fatalf("singular notice = %+v", fr.Meta.Notices)
 	}
 	_, err := NewCSV().Decode(context.Background(), strings.NewReader("a\n1\n"), plugin.DecodeOptions{FieldTypes: map[string]frame.FieldType{"a": "blob"}})
-	if err == nil || !strings.Contains(err.Error(), "blob") {
+	// An invalid override is a client error (FR-016 AC4): it must wrap ErrOptions.
+	if err == nil || !strings.Contains(err.Error(), "blob") || !errors.Is(err, ErrOptions) {
 		t.Fatalf("err = %v", err)
 	}
 }
