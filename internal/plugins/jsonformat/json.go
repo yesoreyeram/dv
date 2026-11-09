@@ -118,7 +118,7 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 	}
 	for name, t := range opts.FieldTypes {
 		if !t.Valid() {
-			return nil, fmt.Errorf("fieldTypes: %q has unsupported type %q", name, t)
+			return nil, fmt.Errorf("%w: fieldTypes: %q has unsupported type %q", plugin.ErrOptions, name, t)
 		}
 	}
 	br := bufio.NewReader(r)
@@ -212,6 +212,10 @@ func (d *decoder) document(br *bufio.Reader, path []string) error {
 		}
 		if err := d.row(raw, "the document"); err != nil {
 			return err
+		}
+		if d.tab.stopped { // the byte limit refused the only row (FR-012 AC6)
+			d.truncated = true
+			return nil
 		}
 		return d.expectEOF()
 	}
@@ -374,11 +378,11 @@ func (d *decoder) row(raw json.RawMessage, where string) error {
 	var cells []cell
 	if t := bytes.TrimSpace(raw); len(t) > 0 && t[0] == '{' {
 		var err error
-		if cells, err = objectCells(t, "", 0, d.flatten); err != nil {
+		if cells, err = objectCells(t, nil, 0, d.flatten); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
 	} else {
-		cells = []cell{{key: valueField, v: scalar(t)}}
+		cells = []cell{{key: pathKey([]string{valueField}), name: valueField, v: scalar(t)}}
 	}
 	if err := d.tab.add(cells); err != nil {
 		return err
@@ -390,13 +394,21 @@ func (d *decoder) row(raw json.RawMessage, where string) error {
 }
 
 type cell struct {
-	key string
-	v   any // nil, json.Number, bool, string or json.RawMessage (object/array)
+	key  string // identity of the member path; see pathKey
+	name string // display name: the path joined with "."
+	v    any    // nil, json.Number, bool, string or json.RawMessage (object/array)
+}
+
+// pathKey encodes a member path so that distinct paths never share an identity, even
+// when their dotted display names are equal (the key "a.b" versus "a" → "b").
+func pathKey(path []string) string {
+	b, _ := json.Marshal(path) // a []string always marshals
+	return string(b)
 }
 
 // objectCells returns the members of an object in order; with flatten, nested objects
 // up to MaxFlattenDepth become prefixed members. Duplicate keys keep the last value.
-func objectCells(raw json.RawMessage, prefix string, level int, flatten bool) ([]cell, error) {
+func objectCells(raw json.RawMessage, prefix []string, level int, flatten bool) ([]cell, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if _, err := dec.Token(); err != nil { // '{'
@@ -408,20 +420,22 @@ func objectCells(raw json.RawMessage, prefix string, level int, flatten bool) ([
 		if err != nil {
 			return nil, decodeError("", err)
 		}
-		key := prefix + tok.(string)
+		path := make([]string, len(prefix), len(prefix)+1)
+		copy(path, prefix)
+		path = append(path, tok.(string))
 		var v json.RawMessage
 		if err := dec.Decode(&v); err != nil {
 			return nil, decodeError("", err)
 		}
 		if flatten && level+1 < MaxFlattenDepth && len(v) > 0 && v[0] == '{' {
-			nested, err := objectCells(v, key+".", level+1, flatten)
+			nested, err := objectCells(v, path, level+1, flatten)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, nested...)
 			continue
 		}
-		out = append(out, cell{key: key, v: scalar(v)})
+		out = append(out, cell{key: pathKey(path), name: strings.Join(path, "."), v: scalar(v)})
 	}
 	return out, nil
 }
