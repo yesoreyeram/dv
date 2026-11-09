@@ -40,7 +40,7 @@ Feature: One toolchain, declared once and on supported lines (NFR-MAINT-007, NFR
       | go.mod                   | go {go}                                       | go 1.0.0                         | go (go.mod)                                     |
       | deploy/Dockerfile        | FROM golang:{docker.go}-alpine                | FROM golang:1.0-alpine           | is older than go                                |
       | package.json             | "pnpm@{pnpm}"                                 | "pnpm@0.0.1"                     | pnpm (package.json)                             |
-      | .github/workflows/ci.yml | version: v{golangci-lint}                     | version: v0.0.1                  | golangci-lint (ci.yml)                          |
+      | .github/workflows/ci.yml | golangci-lint@v{golangci-lint}                | golangci-lint@v0.0.1             | golangci-lint (ci.yml)                          |
       | deploy/Dockerfile        | pnpm@{pnpm}                                   | pnpm@0.0.1                       | pnpm (Dockerfile)                               |
       | deploy/Dockerfile        | npm install -g --ignore-scripts pnpm@{pnpm}   | corepack enable                  | pnpm (Dockerfile)                               |
       | .github/workflows/ci.yml | GOTOOLCHAIN=local go run golang.org/x/vuln/   | go run golang.org/x/vuln/        | govulncheck must run with GOTOOLCHAIN=local     |

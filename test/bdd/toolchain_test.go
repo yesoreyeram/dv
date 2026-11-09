@@ -117,7 +117,7 @@ func initializeToolchainScenario(sc *godog.ScenarioContext) {
 			{"package.json", `"pnpm@{pnpm}"`, `"pnpm@` + nextPatch(vars["pnpm"]) + `"`},
 			{"deploy/Dockerfile", "pnpm@{pnpm}", "pnpm@" + nextPatch(vars["pnpm"])},
 			{"mise.toml", `golangci-lint = "{golangci-lint}"`, `golangci-lint = "` + nextPatch(vars["golangci-lint"]) + `"`},
-			{".github/workflows/ci.yml", "version: v{golangci-lint}", "version: v" + nextPatch(vars["golangci-lint"])},
+			{".github/workflows/ci.yml", "golangci-lint@v{golangci-lint}", "golangci-lint@v" + nextPatch(vars["golangci-lint"])},
 		}
 		for _, e := range edits {
 			p := filepath.Join(w.dir, e.file)
