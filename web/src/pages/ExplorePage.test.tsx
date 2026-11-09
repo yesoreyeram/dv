@@ -45,7 +45,10 @@ function responder(query: (body: unknown) => { status: number; body: unknown }):
   };
 }
 
-const ok = () => ({ status: 200, body: { results: { A: { status: 200, frames: [wireFrame] } } } });
+const ok = () => ({
+  status: 200,
+  body: { results: { A: { status: 200, durationMs: 1234, frames: [wireFrame] } } },
+});
 
 describe("Explore page (FR-018)", () => {
   it("runs a query and renders the frame in the table panel (AC1, AC3, AC4)", async () => {
@@ -67,7 +70,7 @@ describe("Explore page (FR-018)", () => {
     await user.click(screen.getByRole("button", { name: "Run query" }));
     expect(await screen.findByRole("table", { name: "sales.csv, 2 rows" })).toBeInTheDocument();
     expect(screen.getByTestId("query-stats")).toHaveTextContent(
-      /2 rows · 2 fields · \d+ ms · samples:sales\.csv/,
+      /2 rows · 2 fields · query time 1,234 ms · total request time \d+ ms · samples:sales\.csv/,
     );
     expect(seen).toEqual([
       {
@@ -86,6 +89,26 @@ describe("Explore page (FR-018)", () => {
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
     expect(init?.credentials).toBe("same-origin");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["a string", "12"],
+  ])("shows an unknown query time as — when durationMs is %s (AC4)", async (_, d) => {
+    const user = userEvent.setup();
+    renderApp(
+      "/explore?path=sales.csv",
+      responder(() => ({
+        status: 200,
+        body: { results: { A: { status: 200, durationMs: d, frames: [wireFrame] } } },
+      })),
+    );
+    await user.click(await screen.findByRole("button", { name: "Run query" }));
+    expect(await screen.findByTestId("query-stats")).toHaveTextContent(
+      /query time — · total request time \d+ ms/,
+    );
   });
 
   it("runs with Ctrl+Enter from the path field", async () => {

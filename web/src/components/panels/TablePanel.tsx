@@ -1,7 +1,16 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Info,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/messages";
+import { downloadFrameCSV } from "@/lib/csv";
 import { formatCell, sortedRowOrder, type SortDirection } from "@/lib/format";
 import type { DataFrame, Field } from "@/lib/frame";
 import { cn } from "@/lib/utils";
@@ -99,6 +108,22 @@ export function TablePanel({ frame }: { frame: DataFrame }) {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {frame.fields.length > 0 ? (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Every row, in the current sort order (FR-018 AC7, NFR-SEC-018).
+              downloadFrameCSV(frame, order);
+            }}
+          >
+            <Download aria-hidden="true" />
+            {t("table.downloadCSV")}
+          </Button>
+        </div>
       ) : null}
 
       {frame.fields.length === 0 ? (

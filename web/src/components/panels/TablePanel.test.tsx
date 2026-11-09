@@ -1,7 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PAGE_SIZE, TablePanel } from "@/components/panels/TablePanel";
+import * as csv from "@/lib/csv";
 import type { DataFrame } from "@/lib/frame";
 
 function frame(n: number): DataFrame {
@@ -75,6 +76,22 @@ describe("TablePanel (FR-013)", () => {
     expect(firstOrders()).toHaveTextContent("5");
     await user.click(button);
     expect(header).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("downloads every row as CSV in the current sort order (FR-018 AC7)", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(csv, "downloadFrameCSV").mockImplementation(() => undefined);
+    const f = frame(120);
+    render(<TablePanel frame={f} />);
+    await user.click(screen.getByRole("button", { name: "Download CSV" }));
+    expect(spy).toHaveBeenLastCalledWith(f, null);
+    await user.click(screen.getByRole("button", { name: /^Orders/ }));
+    await user.click(screen.getByRole("button", { name: "Download CSV" }));
+    const order = spy.mock.lastCall?.[1];
+    expect(order).toHaveLength(120);
+    // Ascending by Orders with nulls last: the smallest non-null value is n - 118 = 2 at row 118.
+    expect(order?.[0]).toBe(118);
+    spy.mockRestore();
   });
 
   it("pages large frames and keeps only one page in the DOM (NFR-PERF-005 AC1)", async () => {

@@ -73,3 +73,44 @@ Then("I see an error alert mentioning {string}", async ({ page }, text: string) 
 Then("the path field is marked invalid", async ({ page }) => {
   await expect(pathField(page)).toHaveAttribute("aria-invalid", "true");
 });
+
+Then("the query statistics show the query time and the total request time", async ({ page }) => {
+  // FR-018 AC4: the server's durationMs and the browser round trip, labelled separately.
+  await expect(page.getByTestId("query-stats")).toHaveText(
+    /query time \d[\d,.\s]* ms · total request time \d[\d,.\s]* ms/,
+  );
+});
+
+When("I download the result as CSV", async ({ page, state }) => {
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Download CSV" }).click(),
+  ]);
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  const bytes = Buffer.concat(chunks);
+  // FR-018 AC7: UTF-8 with a byte order mark.
+  expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  state.download = { name: download.suggestedFilename(), text: bytes.subarray(3).toString("utf8") };
+});
+
+const downloaded = (state: { download?: { name: string; text: string } }) => {
+  if (!state.download) throw new Error("no file was downloaded");
+  return state.download;
+};
+
+Then("the downloaded file is named {string}", ({ state }, name: string) => {
+  expect(downloaded(state).name).toBe(name);
+});
+
+Then("the downloaded CSV has {int} lines", ({ state }, n: number) => {
+  // CRLF line ends, with a final line break (RFC 4180).
+  const { text } = downloaded(state);
+  expect(text.endsWith("\r\n")).toBe(true);
+  expect(text.slice(0, -2).split("\r\n")).toHaveLength(n);
+});
+
+Then("the downloaded CSV contains the line {string}", ({ state }, line: string) => {
+  expect(downloaded(state).text.split("\r\n")).toContain(line);
+});

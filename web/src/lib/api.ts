@@ -153,7 +153,13 @@ export interface QueryError {
 
 /** One query's outcome with frames already decoded and validated. */
 export type QueryOutcome =
-  | { ok: true; status: number; frames: DataFrame[] }
+  | {
+      ok: true;
+      status: number;
+      frames: DataFrame[];
+      /** Server-side query time (FR-016 AC10); null when absent or invalid (FR-018 AC4). */
+      durationMs: number | null;
+    }
   | { ok: false; status: number; error: QueryError };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -165,6 +171,11 @@ function readError(v: unknown): QueryError | null {
   const { code, message } = v;
   if (typeof code !== "string") return null;
   return { code, message: typeof message === "string" ? message : "" };
+}
+
+/** A whole number of milliseconds ≥ 0, else null (FR-018 AC4: never shown as 0). */
+function readDuration(v: unknown): number | null {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
 }
 
 const DECODE_ERROR: QueryError = {
@@ -187,7 +198,7 @@ export function readQueryOutcome(httpStatus: number, body: unknown, refId: strin
     if (r.status >= 200 && r.status < 300) {
       try {
         const frames = Array.isArray(r.frames) ? r.frames.map(decodeFrame) : [];
-        return { ok: true, status: r.status, frames };
+        return { ok: true, status: r.status, frames, durationMs: readDuration(r.durationMs) };
       } catch {
         return { ok: false, status: r.status, error: DECODE_ERROR };
       }

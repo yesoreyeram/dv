@@ -343,7 +343,11 @@ function Result({
         {t("explore.stats", {
           rows: new Intl.NumberFormat().format(frame.length),
           fields: new Intl.NumberFormat().format(frame.fields.length),
-          duration: new Intl.NumberFormat().format(durationMs),
+          queryTime:
+            outcome.durationMs === null
+              ? t("explore.unknownDuration")
+              : t("explore.ms", { n: new Intl.NumberFormat().format(outcome.durationMs) }),
+          total: t("explore.ms", { n: new Intl.NumberFormat().format(durationMs) }),
           query: frame.meta.executedQuery ?? frame.name,
         })}
       </p>
