@@ -94,6 +94,37 @@ Feature: JSON and NDJSON files from a configured root
       | host.geo.region  | string |
       | cpu              | number |
 
+  Scenario: A literal dotted key and a flattened path stay separate fields
+    Given the file "clash.json" contains:
+      """
+      [{"a.b": 1, "a": {"b": 2}}]
+      """
+    When I query the file "clash.json" with options:
+      """
+      {"flatten": true}
+      """
+    Then the frame field "a.b" has values "1"
+    And the frame field "a.b (2)" has values "2"
+
+  Scenario: An unsupported field type override is an options error
+    Given the file "a.json" contains:
+      """
+      [{"a": 1}]
+      """
+    When I query the file "a.json" with field type "a" set to "integer"
+    Then the query fails as "invalid options"
+
+  Scenario: A single object over the byte limit is reported as truncated
+    Given the file "one.json" contains:
+      """
+      {"message": "a value longer than the byte limit"}
+      """
+    And a byte limit of 8
+    When I query the file "one.json"
+    Then the frame has 0 rows
+    And the frame is marked truncated
+    And the frame has a warning notice mentioning "byte limit"
+
   Scenario: Fields that mix numbers and strings are strings
     Given the file "mixed.json" contains:
       """
