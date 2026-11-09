@@ -1,0 +1,5 @@
+{"time":"2026-11-08T10:00:00Z","level":"info","service":"checkout","msg":"deploy started","durationMs":0}
+{"time":"2026-11-08T10:00:42Z","level":"info","service":"checkout","msg":"deploy finished","durationMs":42000}
+{"time":"2026-11-08T10:03:10Z","level":"warn","service":"catalog","msg":"p95 above SLO","durationMs":411,"labels":{"slo":"latency"}}
+{"time":"2026-11-08T10:05:00Z","level":"error","service":"catalog","msg":"health check failed","durationMs":5000,"labels":{"check":"readyz"}}
+{"time":"2026-11-08T10:07:30Z","level":"info","service":"catalog","msg":"recovered","durationMs":150}

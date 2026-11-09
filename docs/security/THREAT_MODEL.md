@@ -57,6 +57,7 @@ public until M3; rate limiting is per-instance (not cluster-wide).
 | I | Theme preference storage leaks data | Only `"light"`/`"dark"` stored in `localStorage`; reads wrapped in try/catch | `theme.test.tsx` |
 | D | Unbounded retries hammer the API | TanStack Query retry capped (2) with exponential backoff | `queryClient.ts` |
 | S | UI copy overstates protections (for example "credentials are encrypted at rest" before FR-022 ships), so an operator relies on a control that does not exist and stores real secrets in plaintext config | Copy describes shipped behaviour only; planned controls are named with their milestone (FR-015 AC7, NFR-AUD-004, B-049). A catalog-wide test rejects security/compliance claims without a planned-milestone marker unless allow-listed against a shipped requirement | `messages.test.ts`, `datasources.feature` |
+| D | Scroll-edge indicators (FR-005 AC7, FR-013 AC8) attach scroll and resize listeners that run per frame and slow a page holding a large table | Listeners are passive and coalesced into one `requestAnimationFrame` per frame; state only changes when an edge flag flips; `ResizeObserver` and listeners are removed on unmount; only the 50-row page is measured (NFR-PERF-005) | `useScrollEdges.test.tsx`, review |
 
 ## F-08 Data-frame model and plugin registry (FR-010, FR-015, NFR-PERF-003, NFR-SEC-002)
 
@@ -168,6 +169,26 @@ per-query deadline + host limits → `Source.Query` → frames → per-refId res
 Residual risks: with `queryApiAllowRemote=true` and no auth, the operator has chosen to
 expose the roots to the network; the warning and docs say so. A client can still issue
 many sequential requests up to the rate limit; per-user quotas come with M3.
+
+## F-12 JSON and NDJSON formats (FR-012, NFR-PERF-003, NFR-SEC-006)
+
+Data flow: as F-03 up to the size-capped reader → `jsonformat` streaming token decoder
+(optional `rowsPath` navigation) → per-row values → type inference → frame builder.
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| D | A huge top-level array (or one deep inside the document) is decoded in full before limits apply | Rows are decoded one element at a time with `json.Decoder.Token`/`More`; decoding stops after `MaxRows`+1 rows and at the 2× raw-byte guard; values skipped on the way to `rowsPath` are consumed token by token, never allocated as a whole | `json_test.go`, `json.feature` |
+| D | Deeply nested input (`[[[[…` or `{"a":{"a":…`) exhausts the stack or CPU | Nesting deeper than 64 levels fails as a decode error, checked while skipping and while decoding rows | `json_test.go` |
+| D | A row with thousands of distinct keys (or many rows each adding new keys) makes a frame millions of fields wide | Field union capped at 1024 (FR-012 AC3), checked as each new key appears | `json_test.go`, `json.feature` |
+| D | `flatten` multiplies fields through deep nesting | Flattening stops at 8 levels and counts toward the 1024-field cap | `json_test.go` |
+| T | Numbers lose precision (`9007199254740993` read as float) or become NaN/Inf | `UseNumber`; integral values parse as `int64`, others as finite `float64`, anything else is null with a warning | `json_test.go` |
+| I | Syntax errors echo file content (e.g. a secret on the failing line) into API responses and logs | Errors carry only a byte offset or row number and a stable kind (decode error) | `json_test.go`, `json.feature` |
+| T | `rowsPath` used as an injection vector (expressions, wildcards, recursive descent) | `rowsPath` is plain dot-separated keys from a fixed character set, at most 16 segments; no expression language is evaluated | `json_test.go` |
+
+Residual risks: duplicate keys keep the last value, so two tools reading the same file may
+disagree (documented in FR-012 AC7). A single huge string or array value inside one row is
+bounded only by `fileMaxBytes`, not by the byte limit, because a row is decoded before it
+can be measured.
 
 ## Planned features (threats to model at implementation time)
 

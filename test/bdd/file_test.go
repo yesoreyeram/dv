@@ -57,6 +57,8 @@ var errorKinds = map[string]error{
 	"not a regular file": fsroot.ErrNotRegular,
 	"too large":          fsroot.ErrTooLarge,
 	"unsupported format": filesource.ErrUnsupportedFormat,
+	"decode error":       plugin.ErrDecode,
+	"invalid options":    plugin.ErrOptions,
 }
 
 func (w *fileWorld) source() (plugin.Source, func(), error) {
@@ -201,6 +203,30 @@ func initializeFileScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^I query the file "([^"]*)" with field type "([^"]*)" set to "([^"]*)"$`, func(p, field, typ string) error {
 		return w.query(map[string]any{"path": p, "fieldTypes": map[string]string{field: typ}})
+	})
+	sc.Step(`^I query the file "([^"]*)" with options:$`, func(p string, doc *godog.DocString) error {
+		return w.query(map[string]any{"path": p, "options": json.RawMessage(doc.Content)})
+	})
+	sc.Step(`^the file "([^"]*)" contains (\d+) nested arrays$`, func(name string, n int) error {
+		return w.writeFile(name, strings.Repeat("[", n)+strings.Repeat("]", n))
+	})
+	sc.Step(`^the file "([^"]*)" contains one object with (\d+) keys$`, func(name string, n int) error {
+		var b strings.Builder
+		b.WriteString("[{")
+		for i := range n {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, "\"k%d\":%d", i, i)
+		}
+		b.WriteString("}]")
+		return w.writeFile(name, b.String())
+	})
+	sc.Step(`^the error does not mention "([^"]*)"$`, func(s string) error {
+		if w.err != nil && strings.Contains(w.err.Error(), s) {
+			return fmt.Errorf("error %q mentions %q", w.err.Error(), s)
+		}
+		return nil
 	})
 	sc.Step(`^I validate a file source instance using root "([^"]*)"$`, func(root string) error {
 		src, done, err := w.source()

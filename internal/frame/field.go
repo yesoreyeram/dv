@@ -215,3 +215,17 @@ func estimateSize(v any) int {
 		return sizeSlot + sizeBoxedWord
 	}
 }
+
+// timeLayouts are the text forms decoders infer as time (FR-011 AC7), interpreted as UTC
+// when no offset is present.
+var timeLayouts = []string{time.RFC3339Nano, "2006-01-02", "2006-01-02 15:04:05", "2006-01-02T15:04:05"}
+
+// ParseTime parses s under the layouts decoders infer as time and returns it in UTC.
+func ParseTime(s string) (time.Time, bool) {
+	for _, l := range timeLayouts {
+		if ts, err := time.Parse(l, s); err == nil {
+			return ts.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}

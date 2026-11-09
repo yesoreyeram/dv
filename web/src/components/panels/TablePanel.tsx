@@ -9,10 +9,12 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ScrollEdgeShadows } from "@/components/ui/scroll-edges";
 import { t } from "@/i18n/messages";
 import { downloadFrameCSV } from "@/lib/csv";
 import { formatCell, sortedRowOrder, type SortDirection } from "@/lib/format";
 import type { DataFrame, Field } from "@/lib/frame";
+import { useScrollEdges } from "@/lib/useScrollEdges";
 import { cn } from "@/lib/utils";
 
 /** Rows per page; only one page is ever in the DOM (FR-013 AC4, NFR-PERF-005). */
@@ -83,6 +85,8 @@ export function TablePanel({ frame }: { frame: DataFrame }) {
   for (let i = start; i < end; i++) rows.push(order ? (order[i] ?? i) : i);
 
   const notices = frame.meta.notices ?? [];
+  // Re-measure when the frame, page or sort changes the rendered width (FR-013 AC8).
+  const [regionRef, edges] = useScrollEdges<HTMLDivElement>([frame, current, sort]);
 
   return (
     <div className="flex flex-col gap-3" data-testid="table-panel">
@@ -129,80 +133,85 @@ export function TablePanel({ frame }: { frame: DataFrame }) {
       {frame.fields.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("table.noFields")}</p>
       ) : (
-        <div
-          className="overflow-x-auto rounded-md border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          role="region"
-          aria-label={t("table.scrollRegion", { name })}
-          // A scrollable region must be keyboard focusable (WCAG 2.1.1, axe
-          // scrollable-region-focusable), so arrow keys can scroll wide tables.
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-          tabIndex={0}
-        >
-          <table className="w-full border-collapse text-sm">
-            <caption className="sr-only">
-              {t("table.caption", { name, rows: fmt(frame.length) })}
-            </caption>
-            <thead className="bg-muted/60">
-              <tr>
-                {frame.fields.map((f, i) => {
-                  const label = f.config.displayName ?? f.name;
-                  const dir = sort?.field === i ? sort.direction : undefined;
-                  const numeric = f.type === "number" || f.type === "time";
-                  return (
-                    <th
-                      key={f.name}
-                      scope="col"
-                      aria-sort={dir ?? "none"}
-                      className={cn(
-                        "border-b px-1 py-1 font-medium",
-                        numeric ? "text-right" : "text-left",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSort((s) => nextSort(s, i));
-                          setPage(0);
-                        }}
+        <div className="relative">
+          <div
+            ref={regionRef}
+            data-testid="table-region"
+            className="overflow-x-auto rounded-md border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            role="region"
+            aria-label={t("table.scrollRegion", { name })}
+            // A scrollable region must be keyboard focusable (WCAG 2.1.1, axe
+            // scrollable-region-focusable), so arrow keys can scroll wide tables.
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+            tabIndex={0}
+          >
+            <table className="w-full border-collapse text-sm">
+              <caption className="sr-only">
+                {t("table.caption", { name, rows: fmt(frame.length) })}
+              </caption>
+              <thead className="bg-muted/60">
+                <tr>
+                  {frame.fields.map((f, i) => {
+                    const label = f.config.displayName ?? f.name;
+                    const dir = sort?.field === i ? sort.direction : undefined;
+                    const numeric = f.type === "number" || f.type === "time";
+                    return (
+                      <th
+                        key={f.name}
+                        scope="col"
+                        aria-sort={dir ?? "none"}
                         className={cn(
-                          "inline-flex w-full items-center gap-1.5 rounded px-2 py-1 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring [&_svg]:size-3.5",
-                          numeric && "flex-row-reverse",
+                          "border-b px-1 py-1 font-medium",
+                          numeric ? "text-right" : "text-left",
                         )}
                       >
-                        <span className="flex flex-col leading-tight">
-                          <span>{label}</span>
-                          <span className="text-xs font-normal text-muted-foreground">
-                            {f.type}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSort((s) => nextSort(s, i));
+                            setPage(0);
+                          }}
+                          className={cn(
+                            "inline-flex w-full items-center gap-1.5 rounded px-2 py-1 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring [&_svg]:size-3.5",
+                            numeric && "flex-row-reverse",
+                          )}
+                        >
+                          <span className="flex flex-col leading-tight">
+                            <span>{label}</span>
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {f.type}
+                            </span>
                           </span>
-                        </span>
-                        <SortIcon direction={dir} />
-                      </button>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={frame.fields.length}
-                    className="px-3 py-6 text-center text-muted-foreground"
-                  >
-                    {t("table.noRows")}
-                  </td>
+                          <SortIcon direction={dir} />
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
-              ) : (
-                rows.map((r) => (
-                  <tr key={r} className="border-b last:border-b-0 hover:bg-muted/40">
-                    {frame.fields.map((f) => (
-                      <Cell key={f.name} field={f} row={r} />
-                    ))}
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={frame.fields.length}
+                      className="px-3 py-6 text-center text-muted-foreground"
+                    >
+                      {t("table.noRows")}
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  rows.map((r) => (
+                    <tr key={r} className="border-b last:border-b-0 hover:bg-muted/40">
+                      {frame.fields.map((f) => (
+                        <Cell key={f.name} field={f} row={r} />
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <ScrollEdgeShadows edges={edges} from="from-card" />
         </div>
       )}
 

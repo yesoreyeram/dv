@@ -61,6 +61,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | NFR-A11Y-002 | Fully keyboard operable; visible focus indicator (≥ 2 px, 3:1 contrast); skip link. | M | BDD scenarios | In progress |
 | NFR-A11Y-003 | Respects `prefers-reduced-motion` and `prefers-color-scheme`. | S | Review | In progress |
 | NFR-A11Y-004 | Charts expose a data-table alternative. | M | Tests | Planned (M2) |
+| NFR-A11Y-005 | Reflow (WCAG 1.4.10): at a 320–390 CSS px viewport no page scrolls sideways; only content that needs two dimensions (data tables, the mobile navigation row) scrolls, inside its own region, and every such region shows which edge hides content (FR-005 AC7, FR-013 AC8). Edge indicators are decorative, theme-aware, and replaced by a solid line under `forced-colors`. | M | `shell.feature`, `explore.feature` at 390 px; Vitest | In progress |
 
 ## Internationalization (I18N)
 
