@@ -1,0 +1,46 @@
+$ curl -s -X POST localhost:18090/api/v1/query -H "Content-Type: application/json" -d '{"queries":[{"refId":"A","datasource":{"uid":"samples"},"query":{"path":"formulas.csv"}}]}' | python3 -m json.tool
+{
+    "results": {
+        "A": {
+            "status": 200,
+            "durationMs": 0,
+            "frames": [
+                {
+                    "schema": {
+                        "name": "formulas.csv",
+                        "meta": {
+                            "source": "file",
+                            "executedQuery": "samples:formulas.csv"
+                        },
+                        "fields": [
+                            {
+                                "name": "label",
+                                "type": "string",
+                                "config": {}
+                            },
+                            {
+                                "name": "delta",
+                                "type": "number",
+                                "config": {}
+                            }
+                        ]
+                    },
+                    "data": {
+                        "values": [
+                            [
+                                "=1+1",
+                                "@SUM(A1:A2)",
+                                "plain"
+                            ],
+                            [
+                                -3,
+                                7,
+                                0
+                            ]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}

@@ -4,7 +4,10 @@ import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 import { App } from "@/App";
 
-type Responder = (path: string) => { status: number; body: unknown } | Error;
+export type Responder = (
+  path: string,
+  init?: RequestInit,
+) => { status: number; body: unknown } | Error;
 
 export const fixtures = {
   version: { version: "1.2.3", commit: "abc1234", buildDate: "2026-11-07", goVersion: "go1.24.7" },
@@ -38,10 +41,13 @@ export const defaultResponder: Responder = (path) => {
 };
 
 export function mockFetch(responder: Responder = defaultResponder) {
-  const fn = vi.fn((input: RequestInfo | URL) => {
+  const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path =
       typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-    const r = responder(path);
+    if (init?.signal?.aborted) {
+      return Promise.reject(new DOMException("aborted", "AbortError"));
+    }
+    const r = responder(path, init);
     if (r instanceof Error) return Promise.reject(r);
     return Promise.resolve(
       new Response(JSON.stringify(r.body), {

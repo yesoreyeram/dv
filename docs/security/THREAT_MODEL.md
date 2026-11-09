@@ -135,6 +135,18 @@ written by anyone who can open a PR (including Dependabot and, for public repos,
 | T | The vulnerability gate reports "No vulnerabilities found" for a toolchain we do not ship: `govulncheck@v1.9.0` needs Go ≥ 1.26, so with `GOTOOLCHAIN=auto` the go command switched to go1.26.10 and set `GOROOT` for the tool, while the binary was built with the unsupported go1.24.7 (seen in PR #14's CI log) | Build toolchain moved to the supported Go 1.27.3 (NFR-MAINT-007 AC6); govulncheck runs as `GOTOOLCHAIN=local … -show version`, so a version gap fails the job and the log shows the scanned Go version (NFR-SEC-015 AC6). Residual: Go minor support dates are checked by review and the backlog, not by CI. | `toolchain.feature`; `scripts/check-toolchain.sh`; CI govulncheck log |
 | E | A malformed workflow expression or shell bug in `run:` widens what a step does (e.g. untrusted `${{ }}` interpolation into a script) | `actionlint` + shellcheck on every PR, including its script-injection check (AC4). | CI `Workflow lint (actionlint)` job |
 
+## F-11 Explore page and table panel (FR-013, FR-018, NFR-SEC-018)
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T | File content (cell values, field names, notices, error messages) carries markup or script that the browser executes | Everything is rendered as React text, no `dangerouslySetInnerHTML`; CSP forbids inline script; frames are validated by `decodeFrame` before rendering | `TablePanel.test.tsx`, `explore.feature` |
+| I | Query state in the URL leaks something sensitive | Only the data-source uid, path, format and row limit are in the URL; no credentials exist (FR-017 refuses `secureJsonData`) | Review, `ExplorePage.test.tsx` |
+| S/T | A link opened from elsewhere runs a query the user did not intend | URL state only fills the form; a query runs only when the user presses Run (FR-018 AC6); cross-site and rebinding requests are refused server-side (NFR-SEC-017) | `ExplorePage.test.tsx` |
+| T/E | A value from a data source (`=HYPERLINK(...)`, `@SUM(...)`, `+cmd|...`) in an exported CSV runs as a formula when the user opens the file in a spreadsheet app (CSV injection, CWE-1236) | Text cells and headers starting with `= + - @`, tab or CR (after leading spaces) get a `'` prefix; numbers are written unprefixed; RFC 4180 quoting stops extra columns/rows (NFR-SEC-018) | `csv.test.ts`, `explore.feature` |
+| I | The export leaks more than the user saw | It is built from the frame already shown, client-side; no export endpoint (NFR-SEC-018 AC4) | Review |
+| T | A frame name with `../`, `/` or control characters becomes a misleading download name | File name reduced to `[A-Za-z0-9._-]`, ≤ 100 chars (FR-018 AC7); browsers also strip directories | `csv.test.ts` |
+| D | A huge frame freezes the tab | Server row/byte limits (NFR-PERF-003); the table renders one 50-row page at a time (NFR-PERF-005); requests can be cancelled | `TablePanel.test.tsx` |
+
 ## F-10 Query API and provisioned data sources (FR-016, FR-017, NFR-SEC-016, NFR-PERF-003)
 
 Data flow: operator config `datasources[]` → validated by each plugin at start-up →

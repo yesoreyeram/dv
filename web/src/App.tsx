@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { t } from "@/i18n/messages";
 import { ApiReferencePage } from "@/pages/ApiReferencePage";
 import { DataSourcesPage } from "@/pages/DataSourcesPage";
+import { ExplorePage } from "@/pages/ExplorePage";
 import { HomePage } from "@/pages/HomePage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PlannedPage } from "@/pages/PlannedPage";
@@ -34,12 +35,7 @@ export function App({ queryClient }: { queryClient: QueryClient }) {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
-          <Route
-            path="explore"
-            element={
-              <PlannedPage title={t("explore.title")} body={t("explore.body")} milestone="M2" />
-            }
-          />
+          <Route path="explore" element={<ExplorePage />} />
           <Route
             path="dashboards"
             element={
