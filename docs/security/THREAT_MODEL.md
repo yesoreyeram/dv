@@ -90,7 +90,7 @@ instance (`jsonData.root`) → query `{path, format, options, fieldTypes}` → p
 | D | Crafted CSV whose columns change inferred type on different rows forces repeated full re-conversion (CPU/allocation amplification, quadratic in column count) | Inference streams over column-wise state and re-converts only the column whose type changed; each column changes type at most four times, so every cell is converted at most five times (a 182 KiB staggered 128-column file went from ~924 MiB allocated to ~22 MiB) | `csv_test.go` (`TestStaggeredTypeChangesStayLinear`) |
 | I | Error messages disclose the server's directory layout | Errors carry the relative path and a stable kind; the absolute root path is never included | `file_test.go` |
 | E | A query names a root the instance is not configured for | The root comes only from the instance's `jsonData.root`, never from the query body; unknown query keys are rejected | `file_test.go` |
-| S/R | Unauthenticated users read files | Out of scope until M3: the query API (B-014) will require an authenticated Viewer and audit-log reads (B-020, NFR-AUD-001). Until then roots should only contain non-sensitive data | — |
+| S/R | Unauthenticated users read files | Until M3 the query API is off by default and loopback-only (F-10, NFR-SEC-016); from M3 it requires an authenticated Viewer and audit-logs reads (B-020, NFR-AUD-001). Until then roots should only contain non-sensitive data | `config_test.go`, `query.feature` |
 
 Toolchain dependency: `os.Root` in Go 1.24.0 let a symlink to `../` inside a root reach
 files in the parent directory (caught by `TestOpenErrors` in CI's minimum-version job).
@@ -134,6 +134,28 @@ written by anyone who can open a PR (including Dependabot and, for public repos,
 | T | One toolchain declaration drifts (CI on Node 22 while the image builds with 26), so what CI tested is not what ships | `check-toolchain.sh` compares every declaration with `mise.toml` and fails CI; each rule has a scenario that changes one file in a copy of the repo (AC5). | `toolchain.feature` |
 | T | The vulnerability gate reports "No vulnerabilities found" for a toolchain we do not ship: `govulncheck@v1.9.0` needs Go ≥ 1.26, so with `GOTOOLCHAIN=auto` the go command switched to go1.26.10 and set `GOROOT` for the tool, while the binary was built with the unsupported go1.24.7 (seen in PR #14's CI log) | Build toolchain moved to the supported Go 1.27.3 (NFR-MAINT-007 AC6); govulncheck runs as `GOTOOLCHAIN=local … -show version`, so a version gap fails the job and the log shows the scanned Go version (NFR-SEC-015 AC6). Residual: Go minor support dates are checked by review and the backlog, not by CI. | `toolchain.feature`; `scripts/check-toolchain.sh`; CI govulncheck log |
 | E | A malformed workflow expression or shell bug in `run:` widens what a step does (e.g. untrusted `${{ }}` interpolation into a script) | `actionlint` + shellcheck on every PR, including its script-injection check (AC4). | CI `Workflow lint (actionlint)` job |
+
+## F-10 Query API and provisioned data sources (FR-016, FR-017, NFR-SEC-016, NFR-PERF-003)
+
+Data flow: operator config `datasources[]` → validated by each plugin at start-up →
+`query.Service` (uid → instance) ← `POST /api/v1/query` (strict JSON, ≤ 20 queries) →
+per-query deadline + host limits → `Source.Query` → frames → per-refId result.
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| S/I | Anyone who can reach the port reads every exposed file before authentication exists | Endpoint off by default; enabling it requires a loopback `httpAddr` unless the operator explicitly sets `queryApiAllowRemote`, which logs a warning (NFR-SEC-016). Removed only when NFR-SEC-003 ships | `config_test.go`, `query.feature` |
+| E | A query picks its own root, file settings or plugin type | The request names only a `datasource.uid`; type and `jsonData` come from operator config. Plugin query bodies are decoded strictly by the plugin | `query_test.go`, `file_test.go` |
+| T | Malformed or oversized bodies, unknown fields, duplicate `refId`s smuggle data or confuse result keys | `MaxBody`, strict decoding with trailing-data check, `refId` pattern + uniqueness; no query runs when the request is invalid | `query_test.go`, `query.feature` |
+| D | One request fans out many slow or huge queries | ≤ 20 queries, ≤ 4 concurrent per request, per-query `queryTimeout`, host row/byte limits a query can lower but never raise; API rate limiting (NFR-SEC-008) bounds requests per client | `query_test.go`, `query.feature` |
+| D | One request retains up to 20 × `queryMaxBytes` of frames until its response is written (memory exhaustion with few requests) | `queryMaxBytes` is a per-request budget: each query reserves a share of what is left and returns the unused part; when nothing is left the query answers `413 budget_exhausted` without running (FR-016 AC9, NFR-PERF-003 AC2, B-062) | `budget_test.go`, `query.feature` |
+| I | Error messages disclose server paths, driver errors or stack traces | Known error kinds map to fixed messages; unknown errors return a generic `query_failed` and are logged server-side with the request ID only | `query_test.go` |
+| I | Provisioned secrets end up in plain config and in API responses | `secureJsonData` is refused in provisioning until FR-022; `GET /api/v1/datasources` returns uid/type/name only | `config_test.go`, `query.feature` |
+| S/I | DNS rebinding: a web page the operator visits rebinds its own name to `127.0.0.1`, so the browser treats the loopback query API as same-origin and the page reads every exposed file; a cross-site page fires queries (CSRF-style, blind) | Gated endpoints accept only loopback `Host` values (`localhost`, `*.localhost`, loopback IPs) while `queryApiAllowRemote=false`; `POST /api/v1/query` refuses cross-site `Sec-Fetch-Site` and a mismatched `Origin`; checks run before the body is read; `Content-Type: application/json` already forces a CORS preflight that is never granted (NFR-SEC-017, B-063) | `query_test.go`, `gate.feature` |
+| R | No record of who read what | Every query logged with request ID, refId, uid, type, status, duration (FR-016 AC8); identity added in M3 with the audit log (NFR-AUD-001) | `query_test.go` |
+
+Residual risks: with `queryApiAllowRemote=true` and no auth, the operator has chosen to
+expose the roots to the network; the warning and docs say so. A client can still issue
+many sequential requests up to the rate limit; per-user quotas come with M3.
 
 ## Planned features (threats to model at implementation time)
 

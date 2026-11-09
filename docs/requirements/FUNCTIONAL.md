@@ -27,6 +27,8 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-010 | Common data-frame model | M | M2 | In progress |
 | FR-015 | Plugin registry and plugin catalogue | M | M2 | In progress |
 | FR-011 | CSV / TSV file source | M | M2 | In progress |
+| FR-016 | Query API (`POST /api/v1/query`) | M | M2 | In progress |
+| FR-017 | Provisioned data-source instances | M | M2 | In progress |
 | FR-012 | JSON file source | M | M2 | Planned |
 | FR-013 | Table panel | M | M2 | Planned |
 | FR-014 | Time-series line chart panel | M | M2 | Planned |
@@ -204,6 +206,76 @@ Operators expose directories of files to dv; editors query CSV/TSV files in them
   unsupported format) so the query API (B-014) can map them to HTTP statuses.
 - AC10: frames are named after the file's base name; `meta.source` is `file` and
   `meta.executedQuery` is `<root>:<path>`.
+
+### FR-016 — Query API `POST /api/v1/query` (M)
+Clients run one or more queries against configured data-source instances and get frames
+back, keyed by `refId`. The request/response shape follows the established dashboard-tool
+convention (a batch of `refId`-tagged queries, per-query status, `207 Multi-Status` when
+only some fail) so panels can render partial results.
+- AC1: request body `{"queries":[{"refId","datasource":{"uid"},"query":{…},"maxRows"?}],"from"?,"to"?}`.
+  `Content-Type` must be `application/json` (else `415 unsupported_media_type`). JSON is
+  decoded strictly: unknown fields, trailing data, or a body over `maxBodyBytes` are `400
+  invalid_request` (`413` for the size). `from`/`to` are RFC 3339; if one is given both
+  are required and `from` must not be after `to`. `query` is the plugin's own query model.
+- AC2: 1 to 20 queries per request; each `refId` matches `^[A-Za-z0-9_-]{1,64}$` and is
+  unique in the request; `datasource.uid` is required. Violations are `400 invalid_request`
+  naming the offending index, and no query runs.
+- AC3: response `{"results":{"<refId>":{"status":<int>,"frames":[…]}}}` with frames in the
+  FR-010 wire format, or `{"status":<int>,"error":{"code","message"}}` for a failed query.
+  HTTP status: `200` when every query succeeded; when every query failed with the same
+  status, that status; otherwise `207`.
+- AC4: query errors map to stable codes and statuses (B-040): unknown datasource uid →
+  `404 datasource_not_found`; invalid path / query / source settings → `400 invalid_query`;
+  file not found → `404 not_found`; not a regular file → `400 invalid_query`; file too
+  large → `413 too_large`; request byte budget used up by earlier queries → `413
+  budget_exhausted` (AC9); unsupported format → `415 unsupported_format`; invalid format
+  options (e.g. a two-character delimiter) → `400 invalid_query`; file content the format
+  cannot decode (wrong column count, empty input) → `422 decode_failed`; per-query
+  deadline → `504 timeout`; client gone → `499 cancelled`; anything else → `500
+  query_failed` with a generic message (details only in the server log with the request ID).
+- AC5: each query runs with its own deadline (`queryTimeout`, default 30 s,
+  `DV_QUERY_TIMEOUT`); queries of one request run concurrently, at most 4 at a time.
+- AC6: host result limits `queryMaxRows` (default 100 000, `DV_QUERY_MAX_ROWS`) and
+  `queryMaxBytes` (default 32 MiB, `DV_QUERY_MAX_BYTES`) apply to every query (NFR-PERF-003).
+  A query may lower the row limit with `maxRows` but can never raise it above the host limit.
+- AC9 (per-request byte budget, B-062): `queryMaxBytes` bounds the frames retained for a
+  whole request, not each query, so one request can never hold more than `queryMaxBytes`
+  of results however many queries it carries. When a query starts it reserves a share of
+  what is left: `remaining / queries not yet started` (counting itself), so queries get
+  equal shares, and it hands back what its frames did not use when it finishes; later
+  queries share what was handed back. A query whose frames hit its
+  share is truncated (FR-010 notice) and gets an extra warning notice naming the
+  request budget. A query that starts when nothing is left does not run and answers `413
+  budget_exhausted`. A single-query request still gets the whole `queryMaxBytes`.
+- AC7: until authentication ships (M3, NFR-SEC-003) the endpoint is off by default
+  (`queryApiEnabled=false`, `DV_QUERY_API_ENABLED`): when off it answers `404` like any
+  unknown route. When on, start-up fails unless `httpAddr` binds a loopback address, or the
+  operator also sets `queryApiAllowRemote=true` (`DV_QUERY_API_ALLOW_REMOTE`), in which case
+  a warning is logged at start-up (NFR-SEC-016). Both endpoints also refuse non-loopback
+  `Host` values and cross-site browser requests (NFR-SEC-017), so DNS rebinding cannot turn
+  the loopback gate into a same-origin read for an arbitrary web page.
+- AC8: error messages never contain the operator's absolute paths (FR-011 AC9), and every
+  executed query is logged with request ID, refId, datasource uid, type, status and duration,
+  never the query result.
+- AC10 (query timing, B-069): every result carries `durationMs`, the whole milliseconds
+  the query spent from start to result inside the service (`0` for a query that never
+  started because the client went away). The same value is logged as `duration_ms`
+  (AC8). It lets panels and an inspector show which query was slow, like the query
+  statistics other dashboard tools show per query. It is a server-side measure only and
+  carries no data.
+
+### FR-017 — Provisioned data-source instances (M)
+Until M3 adds stored, editable instances, operators declare data-source instances in the
+config file so the query API is usable.
+- AC1: config file `datasources: [{"uid","type","name","jsonData"}]`. `uid` matches
+  `^[A-Za-z0-9_-]{1,40}$` and is unique; `name` is 1–100 characters; `type` must be a
+  registered source plugin. Unknown keys — including `secureJsonData`, which is refused until
+  FR-022 ships encrypted secrets — fail start-up.
+- AC2: every instance is checked with its plugin's `Validate` at start-up; a failure aborts
+  start-up with the uid and the plugin's (path-free) message.
+- AC3: `GET /api/v1/datasources` lists `{"uid","type","name"}` sorted by uid. Settings
+  (`jsonData`) are not returned (least disclosure until RBAC). It follows the same
+  `queryApiEnabled` gate as FR-016.
 
 ### FR-012 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation

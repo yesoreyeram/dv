@@ -15,3 +15,5 @@ Feature: System status and API reference
     And I see the endpoint "GET" "/readyz"
     And I see the endpoint "GET" "/api/v1/version"
     And I see the endpoint "GET" "/api/v1/plugins"
+    And I see the endpoint "GET" "/api/v1/datasources"
+    And I see the endpoint "POST" "/api/v1/query"
