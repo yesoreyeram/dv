@@ -32,6 +32,24 @@ while read -r v; do check "node major (ci.yml)" "${node_mise%%.*}" "$v"; done \
   < <(sed -nE 's/^[[:space:]]*node-version: ([0-9]+)$/\1/p' .github/workflows/ci.yml)
 check "golangci-lint (ci.yml)" "v$lint_mise" "$(sed -nE 's/^[[:space:]]*version: (v[0-9.]+)$/\1/p' .github/workflows/ci.yml | head -n1)"
 
+# AC6: a step that runs an external Go tool (`go run|install module/path@vX.Y.Z`) sets
+# GOTOOLCHAIN: auto in its own env, so the go command may fetch the (sumdb-verified) toolchain
+# the tool needs; actions/setup-go v6+ exports GOTOOLCHAIN=local. A step starts at a "- " list
+# item; any "- " line inside a run block also starts one, which can only add findings.
+for wf in .github/workflows/*.yml; do
+  while IFS= read -r line; do echo "toolchain mismatch: $line needs GOTOOLCHAIN: auto in its env"; fail=1; done < <(
+    awk -v wf="$wf" '
+      function indent(s) { match(s, /^[[:space:]]*/); return RLENGTH }
+      function flush() { if (start && tool && !auto) print wf ":" start; start = 0; tool = 0; auto = 0 }
+      /^[[:space:]]*#/ { next }
+      /^[[:space:]]*- / { flush(); start = NR; depth = indent($0) }
+      start && NF && indent($0) <= depth && !/^[[:space:]]*- / { flush() }
+      start && /(^|[^[:alnum:]_])go[[:space:]].*(run|install)[[:space:]].*[[:alnum:].-]+\/[^[:space:]@]+@v[0-9]/ { tool = 1 }
+      start && /^[[:space:]]*GOTOOLCHAIN:[[:space:]]*["\x27]?auto["\x27]?[[:space:]]*$/ { auto = 1 }
+      END { flush() }
+    ' "$wf")
+done
+
 if (( ${node_mise%%.*} % 2 != 0 )); then echo "node ${node_mise} is not an LTS (even) major"; fail=1; fi
 if (( fail == 0 )); then echo "toolchain pins consistent: go ${go_mise}, node ${node_mise}, pnpm ${pnpm_mise}, golangci-lint ${lint_mise}"; fi
 exit "$fail"

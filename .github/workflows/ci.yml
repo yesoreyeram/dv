@@ -59,8 +59,11 @@ jobs:
         with:
           go-version-file: go.mod
       # NFR-SEC-015 AC2: exact version, verified by go.sum/sumdb. v1.9.0 needs Go 1.26,
-      # which the go command fetches (verified) via GOTOOLCHAIN=auto.
+      # which the go command fetches (sumdb-verified) because GOTOOLCHAIN is auto. Set it
+      # explicitly (NFR-MAINT-007 AC6): setup-go v6+ exports GOTOOLCHAIN=local.
       - name: govulncheck
+        env:
+          GOTOOLCHAIN: auto
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   workflows:
