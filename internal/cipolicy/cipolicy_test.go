@@ -3,6 +3,7 @@ package cipolicy
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,27 @@ func TestCheckScript(t *testing.T) {
 		{"go install -C and two packages", "go install -C /tmp github.com/x/a@v1.2.3 github.com/x/b@latest", []string{RuleGoToolUnpinned}},
 		{"go install empty version", "go install github.com/x/a@", []string{RuleGoToolUnpinned}},
 		{"go run -tags pinned", "go run -tags netgo golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...", nil},
+		{"go -C before run", "go -C . run golang.org/x/vuln/cmd/govulncheck@latest ./...", []string{RuleGoToolUnpinned}},
+		{"go -C= before install", "go -C=tools install github.com/example/tool@main", []string{RuleGoToolUnpinned}},
+		{"go -C quoted var before run", `go -C "$GITHUB_WORKSPACE" run x.org/y/tool@latest`, []string{RuleGoToolUnpinned}},
+		{"go -C pinned", "go -C tools run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...", nil},
+		{"go test -run is not go run", "go test -run TestX example.com/a/b@latest", nil},
+		{"go -C dir test", "go -C run test ./...", nil},
+		{"bare go", "go", nil},
+		{"go -C quoted dir with space", `go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@latest ./...`, []string{RuleGoToolUnpinned}},
+		{"go -C single-quoted separator", `go -C 'a;b' run golang.org/x/vuln/cmd/govulncheck@latest ./...`, []string{RuleGoToolUnpinned}},
+		{"go -C escaped space", `go -C a\ b install github.com/example/tool@main`, []string{RuleGoToolUnpinned}},
+		{"go run in command substitution", `v=$(go run golang.org/x/vuln/cmd/govulncheck@latest)`, []string{RuleGoToolUnpinned}},
+		{"go run in backticks", "v=`go run golang.org/x/vuln/cmd/govulncheck@latest`", []string{RuleGoToolUnpinned}},
+		{"quoted package", `go run "golang.org/x/vuln/cmd/govulncheck@latest"`, []string{RuleGoToolUnpinned}},
+		{"go -C quoted dir pinned", `go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...`, nil},
+		{"double-quoted text is read for substitutions, so it is reported", `echo "go run x.org/y/z@latest"`, []string{RuleGoToolUnpinned}},
+		{"single-quoted text is literal", `echo 'go run x.org/y/z@latest'`, nil},
+		{"double-quoted command substitution", `v="$(go run golang.org/x/vuln/cmd/govulncheck@latest ./...)"`, []string{RuleGoToolUnpinned}},
+		{"double-quoted backticks", "v=\"`go run golang.org/x/vuln/cmd/govulncheck@latest`\"", []string{RuleGoToolUnpinned}},
+		{"nested quotes in substitution", `echo "x: $(go -C "tools dir" run golang.org/x/vuln/cmd/govulncheck@latest)"`, []string{RuleGoToolUnpinned}},
+		{"double-quoted substitution pinned", `v="$(go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...)"`, nil},
+		{"cargo is not go", "cargo run x.org/y/z@latest", nil},
 		{"go run ldflags with @", "go run -ldflags=-X=main.by=ci@example.com ./cmd/dv", nil},
 		{"go run pinned", "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...", nil},
 		{"go run prerelease", "go run example.com/t@v0.0.0-20240101000000-abcdefabcdef", nil},
@@ -217,5 +239,26 @@ func TestRepositoryWorkflows(t *testing.T) {
 	}
 	for _, f := range got {
 		t.Error(f)
+	}
+}
+
+func TestShellCommands(t *testing.T) {
+	cases := []struct {
+		in   string
+		want [][]string
+	}{
+		{`a b; c`, [][]string{{"a", "b"}, {"c"}}},
+		{`a "b c" 'd;e' f\ g`, [][]string{{"a", "b c", "d;e", "f g"}}},
+		{`a "x\"y" "" b`, [][]string{{"a", `x"y`, "", "b"}}},
+		{"a | b && c\nd", [][]string{{"a"}, {"b"}, {"c"}, {"d"}}},
+		{"x=$(go run p) `q`", [][]string{{"x=$"}, {"go", "run", "p"}, {"q"}}},
+		{`"unterminated`, [][]string{{"unterminated"}}},
+		{`trailing\`, [][]string{{"trailing"}}},
+	}
+	for _, tc := range cases {
+		got := shellCommands(tc.in)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("shellCommands(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
