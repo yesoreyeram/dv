@@ -62,3 +62,16 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
     And in "deploy/Dockerfile" the text 'FROM node:{docker.node}-alpine' is replaced with 'FROM node:{docker.node+2}-alpine'
     When the toolchain check runs
     Then the toolchain check passes
+
+  Scenario Outline: A CI step that runs an external Go tool chooses its own Go toolchain (AC6)
+    # setup-go v6+ exports GOTOOLCHAIN=local; govulncheck@v1.9.0 needs a newer Go than go.mod.
+    Given a copy of the repository's toolchain declarations
+    And in ".github/workflows/ci.yml" the text 'GOTOOLCHAIN: auto' is replaced with '<to>'
+    When the toolchain check runs
+    Then the toolchain check fails
+    And the toolchain check output mentions "needs GOTOOLCHAIN: auto"
+
+    Examples:
+      | to                     |
+      | GOTOOLCHAIN: local     |
+      | GOFLAGS: -trimpath     |
