@@ -136,7 +136,7 @@ func (f *Format) Decode(ctx context.Context, r io.Reader, opts plugin.DecodeOpti
 	}
 	for name, t := range opts.FieldTypes {
 		if !t.Valid() {
-			return nil, fmt.Errorf("fieldTypes: %q has unsupported type %q", name, t)
+			return nil, fmt.Errorf("%w: fieldTypes: %q has unsupported type %q", ErrOptions, name, t)
 		}
 	}
 	var rr recordReader
