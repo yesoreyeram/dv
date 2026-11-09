@@ -44,7 +44,7 @@ Feature: One toolchain, declared once and on supported lines (NFR-MAINT-007, NFR
       | deploy/Dockerfile        | pnpm@{pnpm}                                   | pnpm@0.0.1                       | pnpm (Dockerfile)                               |
       | deploy/Dockerfile        | npm install -g --ignore-scripts pnpm@{pnpm}   | corepack enable                  | pnpm (Dockerfile)                               |
       | .github/workflows/ci.yml | GOTOOLCHAIN=local go run golang.org/x/vuln/   | go run golang.org/x/vuln/        | govulncheck must run with GOTOOLCHAIN=local     |
-      | .github/workflows/ci.yml | govulncheck@v1.9.0 -show version              | govulncheck@v1.9.0               | govulncheck must print the scanned Go version   |
+      | .github/workflows/ci.yml | -show version ./...                           | ./...                            | govulncheck must print the scanned Go version   |
 
   Scenario: A coordinated patch bump of every pin passes without editing this file
     Given a copy of the repository's toolchain declarations

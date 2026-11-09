@@ -102,7 +102,7 @@ e2e: bdd-ui ## Alias for bdd-ui
 scan: vulncheck audit ## Security scans (gosec runs inside lint-go)
 
 vulncheck: ## govulncheck against the Go module
-	govulncheck ./...
+	GOTOOLCHAIN=local govulncheck -show version ./...
 
 audit: ## pnpm audit: prod deps fail on low+, all deps on moderate+ (NFR-SEC-010)
 	pnpm audit --prod --audit-level low
