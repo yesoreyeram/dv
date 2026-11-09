@@ -142,7 +142,11 @@ func CheckScript(name string, line int, script string) []Finding {
 			add(RuleDownloadUnverified, fmt.Sprintf("scripts/fetch-verified.sh needs <https-url> <sha256> <output> with the SHA-256 as a committed 64-hex literal, got %q", strings.TrimSpace(m[1])))
 		}
 	}
-	for _, args := range goToolCommands(joined) {
+	// Two readings (NFR-SEC-015 AC2): shell words as written, and the same script with
+	// double quotes as plain separators, because "$(go run …)" and "`go run …`" still
+	// execute. Single-quoted text stays literal in both. A finding from either counts.
+	seen := map[string]bool{}
+	for _, args := range append(goToolCommands(joined), goToolCommands(strings.ReplaceAll(joined, `"`, " "))...) {
 		for _, target := range args {
 			if strings.HasPrefix(target, "-") || strings.HasPrefix(target, ".") || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "$") {
 				continue // a flag, a local package or a path inside the checkout
@@ -151,7 +155,8 @@ func CheckScript(name string, line int, script string) []Finding {
 			if at < 0 || !strings.Contains(target[:at], "/") {
 				continue // no version: resolved through this module's go.mod/go.sum
 			}
-			if v := target[at+1:]; !exactSemv.MatchString(v) {
+			if v := target[at+1:]; !exactSemv.MatchString(v) && !seen[target] {
+				seen[target] = true
 				add(RuleGoToolUnpinned, fmt.Sprintf("%s is not pinned to an exact version (use @vX.Y.Z)", target))
 			}
 		}
