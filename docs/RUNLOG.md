@@ -262,3 +262,14 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Owner actions: review/merge #14 (then the next runs rebase and open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next: after #14 merges, open `feat/query-api`; then B-016 line chart (FR-014).
 - 2026-11-09 ~00:45 UTC follow-up (PR #14, Codex P2 on `cipolicy.go`): `go -C . run pkg@latest` passed, because the rule required `run`/`install` right after `go`. The subcommand is now found after skipping leading global flags (`-C dir`, `-C=dir`, quoted values), and every `module/path@version` argument is still checked (NFR-SEC-015 AC2). 3 scenario rows (failed before, 75/75 after) plus passing cases for a pinned `go -C tools run` and `go test -run`; 7 unit cases.
+
+## 2026-11-09 ~18:05–18:25 UTC — B-060 govulncheck toolchain fix on PR #14 (no new PR)
+- Triage: `main` CI green. Open PRs: #14 (ours; all 8 checks green, every review thread resolved, mergeable `clean`; native auto-merge still refused because "Allow auto-merge" is off and the PR is already clean) and Dependabot #7, #10, #11, #12. No open issues. Other PRs are open, so per the run rules no new feature PR this run.
+- Found: the previous run said #10 (setup-go 5 → 7) would pass once rebased on a `main` containing #14. That was wrong. #10's govulncheck log shows `env: GOTOOLCHAIN: local`, which setup-go v6+ exports, and under it `govulncheck@v1.9.0` (needs Go ≥ 1.26) cannot build with our Go 1.24.7 pin. #14 pins v1.9.0 and relied on the default `GOTOOLCHAIN=auto`, so merging #10 after #14 would have turned `main` red.
+- Shipped on PR #14 ([#14](https://github.com/yesoreyeram/dv/pull/14)):
+  - Requirements first (f212b17): NFR-MAINT-007 AC6 and a 2-row `toolchain.feature` outline. Both rows failed before the fix.
+  - The govulncheck step now sets `GOTOOLCHAIN: auto` in its own `env:`. The toolchain itself is still sumdb-verified.
+  - `scripts/check-toolchain.sh` fails any workflow step that runs `go run|install module/path@vX` without it. Hand checks: no env → finding; env → clean; tool on a later line of a `|` block with env on another step → finding; local `go run ./cmd/…` → clean.
+- Evidence: repo BDD 77/77; `GOPROXY=direct go test ./test/bdd/` green; `go test -race ./...` green; golangci-lint 0 issues; `make build` + run, `/readyz` ready, 0 browser console errors. Screenshots: `docs/screenshots/fix-reland-csv-limit-and-repo-automation/09-*`, `10-*`.
+- Not verified locally: shellcheck and actionlint (not installed here; CI's actionlint job runs both on the workflow); a real setup-go v7 job. Left to CI.
+- Next: once #14 merges, ask Dependabot to rebase #10/#11, close #7 (B-056); then B-014 `POST /api/v1/query` + B-042 + B-040, B-013 JSON, B-050.
