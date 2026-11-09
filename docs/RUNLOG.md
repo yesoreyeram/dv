@@ -68,7 +68,6 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
   - The same input now allocates 22 MiB and takes 40 ms. `TestStaggeredTypeChangesStayLinear` (128 MiB cap) fails on the previous code and passes now.
   - FR-011 AC7 and threat-model F-03 were updated.
 
-
 ## 2026-11-07 ~17:35–18:05 UTC — NFR-PERF-001/004 verification + readiness flap fix on the open stack (no new PR)
 - Triage: PRs #2, #3, #4 open and unmerged, all 7 CI checks green, every review thread resolved, `main` unchanged. Three or more open → per the run rules this run improves the stack instead of opening a new PR.
 - Planned: close the two "Planned" NFRs owned by PR #2 that had no verification yet: NFR-PERF-001 (B-031, B-046) and NFR-PERF-004 (B-032). Requirements and Gherkin committed first (ccff39f).
@@ -291,3 +290,17 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Owner actions: review/merge #14 (then the next runs open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
 - Next: B-016 line chart (FR-014), B-064, B-065, rest of B-060.
 - ~21:45 UTC follow-up: CI run 86 (workflow_dispatch) on `feat/json-format` at 2c9afda is green on all 8 jobs, including UI BDD, govulncheck, gitleaks, actionlint and the container image build.
+
+## 2026-11-08 ~22:35 UTC — PR #14 brought up to date with `main` after #13 (no new PR)
+- Triage: `main` moved to a1118cb (owner merged Dependabot #13, `actions/checkout` v4 → v7; `main` CI green). Dependabot #9, #10, #12 were rebased by Dependabot (#10 setup-go v7 red, as before: its base lacks #14's govulncheck pin). Open: #14 plus Dependabot #6–#12; no open issues. #14: 8/8 checks green at 8c1dddc, all 10 review threads resolved. Unopened stack unchanged: `feat/query-api` → `feat/explore` → `feat/json-format`. Other PRs are open, so no new PR.
+- Shipped on [PR #14](https://github.com/yesoreyeram/dv/pull/14): merged `main` (clean, `ci.yml` only), and moved the two `actions/checkout@v4` pins that #14 itself adds (actionlint job, `automerge.yml`) to `@v7`, so every workflow uses the same version as `main`.
+- Evidence: `scripts/check-toolchain.sh` consistent; `go test -race -count=1 ./...` all ok (incl. `TestRepositoryWorkflows`); `GOPROXY=direct go test -run TestRepoAutomationFeatures ./test/bdd/` ok; golangci-lint 0 issues. No app change, so no new screenshots.
+- Owner actions: review/merge #14 (then the next runs open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7; optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next: after #14 merges, rebase the stack onto `main` and open `feat/query-api`; then B-016 line chart (FR-014).
+
+## 2026-11-08 ~23:35 UTC — PR #14 brought up to date with `main` after #6, #8, #9 (no new PR)
+- Triage: `main` moved to 0397a44 (owner merged Dependabot #6 `download-artifact` v8, #9 `setup-node` v7, #8 godog 0.15 → 0.16). Open: #14 plus Dependabot #7, #10, #11, #12; no open issues. #14: 8/8 checks green at 6cd025e, all 10 review threads resolved, Codex no findings. Other PRs are open, so no new PR.
+- Shipped on [PR #14](https://github.com/yesoreyeram/dv/pull/14): merged `main` (no conflicts; `ci.yml`, `go.mod`, `go.sum`). Action versions are now uniform across all workflows (checkout v7, setup-node v7, download-artifact v8).
+- Evidence: `scripts/check-toolchain.sh` consistent (go 1.24.7, node 26.13.0, pnpm 10.28.0, golangci-lint 2.5.0); `GOPROXY=direct go test -race -count=1 ./...` all ok, including the godog suites on godog 0.16.0 (gherkin v42, messages v34); golangci-lint 0 issues. No app change, so no new screenshots.
+- Owner actions: review/merge #14 (then the next runs rebase and open `feat/query-api`, `feat/explore`, `feat/json-format` in that order); close #7 (Node 25 is not LTS; #14 moves to 26); optionally enable "Allow auto-merge" and "Automatically delete head branches" (B-054).
+- Next: after #14 merges, rebase the stack onto `main` and open `feat/query-api`; then B-016 line chart (FR-014).
