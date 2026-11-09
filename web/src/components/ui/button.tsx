@@ -8,7 +8,8 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // Darken on hover: a translucent primary over the page drops white text below 4.5:1.
+        default: "bg-primary text-primary-foreground hover:brightness-95",
         outline: "border bg-card hover:bg-muted",
         ghost: "hover:bg-muted",
       },

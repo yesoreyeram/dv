@@ -20,11 +20,12 @@ describe("App shell (FR-005)", () => {
   it("navigates to planned sections with an explicit milestone badge", async () => {
     const user = userEvent.setup();
     renderApp("/");
-    await user.click(screen.getByRole("link", { name: "Explore" }));
-    expect(screen.getByText("Planned for milestone M2")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
     await user.click(screen.getByRole("link", { name: "Dashboards" }));
     expect(screen.getByText("Planned for milestone M6")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboards" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     await user.click(screen.getByRole("link", { name: "Explore" }));
     expect(screen.getByRole("heading", { level: 1, name: "Explore" })).toBeInTheDocument();
   });
