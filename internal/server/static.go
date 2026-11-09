@@ -62,5 +62,6 @@ func (h *staticHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(b)
+	// b is the embedded index.html built into the binary; no request data reaches it.
+	_, _ = w.Write(b) //nolint:gosec // G705 false positive: static embedded content, served with CSP (NFR-SEC-007).
 }

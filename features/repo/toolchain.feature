@@ -1,4 +1,4 @@
-Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
+Feature: One toolchain, declared once and on supported lines (NFR-MAINT-007, NFR-SEC-015 AC6)
   As the repository owner
   I want mise.toml, go.mod, package.json, CI and the Dockerfile to agree on tool versions
   So that what CI tests is what the image ships, and Node stays on a supported LTS line.
@@ -43,6 +43,8 @@ Feature: One toolchain, declared once and on the Active LTS line (NFR-MAINT-007)
       | .github/workflows/ci.yml | version: v{golangci-lint}                     | version: v0.0.1                  | golangci-lint (ci.yml)                          |
       | deploy/Dockerfile        | pnpm@{pnpm}                                   | pnpm@0.0.1                       | pnpm (Dockerfile)                               |
       | deploy/Dockerfile        | npm install -g --ignore-scripts pnpm@{pnpm}   | corepack enable                  | pnpm (Dockerfile)                               |
+      | .github/workflows/ci.yml | GOTOOLCHAIN=local go run golang.org/x/vuln/   | go run golang.org/x/vuln/        | govulncheck must run with GOTOOLCHAIN=local     |
+      | .github/workflows/ci.yml | -show version ./...                           | ./...                            | govulncheck must print the scanned Go version   |
 
   Scenario: A coordinated patch bump of every pin passes without editing this file
     Given a copy of the repository's toolchain declarations
