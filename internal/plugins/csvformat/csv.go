@@ -17,7 +17,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/yesoreyeram/dv/internal/frame"
@@ -31,10 +30,12 @@ const MaxColumns = 1024
 const cancelCheckEvery = 1024
 
 // ErrDecode is wrapped by every error caused by the input data (as opposed to options).
-var ErrDecode = errors.New("decode failed")
+// It is plugin.ErrDecode, so callers need not import this package.
+var ErrDecode = plugin.ErrDecode
 
-// ErrOptions is wrapped by every error caused by invalid format options.
-var ErrOptions = errors.New("invalid format options")
+// ErrOptions is wrapped by every error caused by invalid format options. It is
+// plugin.ErrOptions.
+var ErrOptions = plugin.ErrOptions
 
 // Options are the format-specific settings in DecodeOptions.Options.
 type Options struct {
@@ -640,10 +641,6 @@ func (in *inferrer) commit(rec []string) {
 	}
 }
 
-// timeLayouts are accepted for time inference, all interpreted as UTC when no offset is
-// present.
-var timeLayouts = []string{time.RFC3339Nano, "2006-01-02", "2006-01-02 15:04:05", "2006-01-02T15:04:05"}
-
 // convert parses cell as type t. Empty cells are null and ok. ok is false when a
 // non-empty cell does not parse; the value is then null.
 func convert(t frame.FieldType, cell string) (any, bool) {
@@ -669,10 +666,8 @@ func convert(t frame.FieldType, cell string) (any, bool) {
 			return f, true
 		}
 	case frame.TypeTime:
-		for _, l := range timeLayouts {
-			if ts, err := time.Parse(l, c); err == nil {
-				return ts.UTC(), true
-			}
+		if ts, ok := frame.ParseTime(c); ok {
+			return ts, true
 		}
 	case frame.TypeJSON:
 		if json.Valid([]byte(c)) {

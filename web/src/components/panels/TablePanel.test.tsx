@@ -122,3 +122,18 @@ describe("TablePanel (FR-013)", () => {
     expect(screen.getByText("The result was truncated by a server limit.")).toBeInTheDocument();
   });
 });
+
+describe("TablePanel scroll-edge affordance (FR-013 AC8)", () => {
+  it("shows decorative edge fades next to the labelled region, hidden when nothing overflows", () => {
+    render(<TablePanel frame={frame(3)} />);
+    const region = screen.getByRole("region");
+    expect(region).toHaveAttribute("tabindex", "0");
+    const wrapper = region.parentElement;
+    if (!wrapper) throw new Error("no wrapper");
+    for (const id of ["scroll-edge-start", "scroll-edge-end"]) {
+      const fade = within(wrapper).getByTestId(id);
+      expect(fade).toHaveAttribute("aria-hidden", "true");
+      expect(fade).toHaveAttribute("data-visible", "false");
+    }
+  });
+});

@@ -1,8 +1,11 @@
 import { BarChart3, BookOpen, Compass, Database, Home, Moon, Sun } from "lucide-react";
-import type { ReactNode } from "react";
-import { NavLink, Outlet } from "react-router";
+import { useLayoutEffect, type ReactNode } from "react";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { Button } from "@/components/ui/button";
+import { ScrollEdgeShadows } from "@/components/ui/scroll-edges";
 import { t, type MessageKey } from "@/i18n/messages";
+import { revealInRow } from "@/lib/revealInRow";
+import { useScrollEdges } from "@/lib/useScrollEdges";
 import { useTheme } from "@/lib/useTheme";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +43,14 @@ function Logo() {
 export function AppShell() {
   const { theme, toggle } = useTheme();
   const toggleLabel = theme === "dark" ? t("theme.toLight") : t("theme.toDark");
+  const { pathname } = useLocation();
+  const [rowRef, edges] = useScrollEdges<HTMLUListElement>([pathname]);
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const current = row?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (row && current) revealInRow(row, current);
+  }, [pathname, rowRef]);
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
@@ -62,8 +73,12 @@ export function AppShell() {
             {theme === "dark" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
           </Button>
         </div>
-        <nav aria-label={t("nav.label")} className="px-2 pb-3 md:flex-1">
-          <ul className="flex gap-1 overflow-x-auto md:flex-col">
+        <nav aria-label={t("nav.label")} className="relative mx-2 mb-3 md:flex-1">
+          <ul
+            ref={rowRef}
+            data-testid="nav-row"
+            className="flex [scrollbar-width:thin] gap-1 overflow-x-auto md:flex-col"
+          >
             {NAV.map((item) => (
               <li key={item.to}>
                 <NavLink
@@ -83,6 +98,7 @@ export function AppShell() {
               </li>
             ))}
           </ul>
+          <ScrollEdgeShadows edges={edges} from="from-sidebar" />
         </nav>
       </header>
       <main

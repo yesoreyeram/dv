@@ -256,7 +256,7 @@
               "properties": {
                 "refId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$", "description": "Unique within the request" },
                 "datasource": { "type": "object", "additionalProperties": false, "required": ["uid"], "properties": { "uid": { "type": "string" } } },
-                "query": { "type": "object", "description": "The plugin's query model, e.g. {\"path\":\"sales.csv\"} for the file source" },
+                "query": { "type": "object", "description": "The plugin's query model. File source: {\"path\", \"format\"?, \"fieldTypes\"?, \"options\"?}, e.g. {\"path\":\"sales.csv\"}; for json, options may set \"rowsPath\" (dot-separated keys) and \"flatten\" (FR-012); for ndjson only \"flatten\"" },
                 "maxRows": { "type": "integer", "minimum": 0, "description": "Lowers the host row limit; can never raise it" }
               }
             }

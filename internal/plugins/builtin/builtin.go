@@ -9,6 +9,7 @@ import (
 	"github.com/yesoreyeram/dv/internal/plugin"
 	"github.com/yesoreyeram/dv/internal/plugins/csvformat"
 	"github.com/yesoreyeram/dv/internal/plugins/filesource"
+	"github.com/yesoreyeram/dv/internal/plugins/jsonformat"
 )
 
 // Options carry the host-owned resources plugins receive.
@@ -24,7 +25,7 @@ type Options struct {
 
 // Register adds every built-in plugin to reg. It does not freeze reg.
 func Register(reg *plugin.Registry, opts Options) error {
-	for _, f := range []plugin.Format{csvformat.NewCSV(), csvformat.NewTSV()} {
+	for _, f := range []plugin.Format{csvformat.NewCSV(), csvformat.NewTSV(), jsonformat.NewJSON(), jsonformat.NewNDJSON()} {
 		if err := reg.RegisterFormat(f); err != nil {
 			return err
 		}

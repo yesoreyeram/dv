@@ -36,7 +36,17 @@ function responder(query: (body: unknown) => { status: number; body: unknown }):
         status: 200,
         body: {
           sources: [],
-          formats: [{ id: "csv", name: "CSV", description: "", mediaTypes: [], extensions: [] }],
+          formats: [
+            { id: "csv", name: "CSV", description: "", mediaTypes: [], extensions: [] },
+            { id: "json", name: "JSON", description: "", mediaTypes: [], extensions: [".json"] },
+            {
+              id: "ndjson",
+              name: "NDJSON",
+              description: "",
+              mediaTypes: [],
+              extensions: [".ndjson", ".jsonl"],
+            },
+          ],
         },
       };
     }
@@ -118,6 +128,65 @@ describe("Explore page (FR-018)", () => {
     await user.type(path, "sales.csv");
     await user.keyboard("{Control>}{Enter}{/Control}");
     expect(await screen.findByRole("table")).toBeInTheDocument();
+  });
+
+  it("offers JSON options for the format the query will use (FR-012 AC9)", async () => {
+    const user = userEvent.setup();
+    const seen: unknown[] = [];
+    renderApp(
+      "/explore",
+      responder((b) => {
+        seen.push(b);
+        return ok();
+      }),
+    );
+    const path = await screen.findByRole("textbox", { name: "Path" });
+    expect(screen.queryByRole("textbox", { name: "Rows path" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Flatten nested objects" })).toBeNull();
+
+    await user.type(path, "events.JSONL");
+    expect(screen.queryByRole("textbox", { name: "Rows path" })).toBeNull();
+    expect(
+      screen.getByRole("checkbox", { name: "Flatten nested objects" }),
+    ).toHaveAccessibleDescription("Turns nested objects into fields such as owner.team.");
+
+    await user.clear(path);
+    await user.type(path, "services.json");
+    const rowsPath = screen.getByRole("textbox", { name: "Rows path" });
+    await user.type(rowsPath, "data..services");
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    expect(rowsPath).toHaveAttribute("aria-invalid", "true");
+    expect(rowsPath).toHaveAccessibleDescription(
+      "Use dot-separated keys of letters, digits, _ or - (at most 16).",
+    );
+    expect(seen).toEqual([]);
+
+    await user.clear(rowsPath);
+    await user.type(rowsPath, "data.services");
+    await user.click(screen.getByRole("checkbox", { name: "Flatten nested objects" }));
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(seen).toEqual([
+      {
+        queries: [
+          {
+            refId: "A",
+            datasource: { uid: "samples" },
+            query: { path: "services.json", options: { rowsPath: "data.services", flatten: true } },
+          },
+        ],
+      },
+    ]);
+
+    // An explicit CSV format hides the JSON options and sends none.
+    await user.selectOptions(screen.getByRole("combobox", { name: "Format" }), "csv");
+    expect(screen.queryByRole("textbox", { name: "Rows path" })).toBeNull();
+  });
+
+  it("restores JSON options from the URL", async () => {
+    renderApp("/explore?ds=samples&path=a.json&rowsPath=data.items&flatten=1", responder(ok));
+    expect(await screen.findByRole("textbox", { name: "Rows path" })).toHaveValue("data.items");
+    expect(screen.getByRole("checkbox", { name: "Flatten nested objects" })).toBeChecked();
   });
 
   it("validates inline and sends nothing when the form is invalid (AC2)", async () => {
