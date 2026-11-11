@@ -97,7 +97,7 @@ Toolchain dependency: `os.Root` in Go 1.24.0 let a symlink to `../` inside a roo
 files in the parent directory (caught by `TestOpenErrors` in CI's minimum-version job).
 `go.mod` therefore required Go ≥ 1.24.7, so dv could not be built with an affected
 standard library. Go 1.24 is out of support since 2026-02-10, so `go.mod` now requires the
-supported Go 1.27.3 (NFR-MAINT-007 AC6); CI keeps testing both that pin and `stable`.
+supported Go 1.27.4 (NFR-MAINT-007 AC6; 1.27.4 fixes GO-2026-6859); CI keeps testing both that pin and `stable`.
 
 Residual risks: CSV formula injection matters on *export* (not implemented yet; the
 exporter must escape `=`, `+`, `-`, `@`). Compressed files are not decoded yet, so zip
