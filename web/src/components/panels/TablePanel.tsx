@@ -1,13 +1,6 @@
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Info,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useMemo, useState } from "react";
+import { FrameNotices } from "@/components/panels/FrameNotices";
 import { Button } from "@/components/ui/button";
 import { ScrollEdgeShadows } from "@/components/ui/scroll-edges";
 import { t } from "@/i18n/messages";
@@ -84,35 +77,12 @@ export function TablePanel({ frame }: { frame: DataFrame }) {
   const rows: number[] = [];
   for (let i = start; i < end; i++) rows.push(order ? (order[i] ?? i) : i);
 
-  const notices = frame.meta.notices ?? [];
   // Re-measure when the frame, page or sort changes the rendered width (FR-013 AC8).
   const [regionRef, edges] = useScrollEdges<HTMLDivElement>([frame, current, sort]);
 
   return (
     <div className="flex flex-col gap-3" data-testid="table-panel">
-      {frame.meta.truncated || notices.length > 0 ? (
-        <ul className="flex flex-col gap-2" aria-label={t("explore.resultTitle")}>
-          {frame.meta.truncated && !notices.some((n) => n.severity === "warning") ? (
-            <li className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              {t("table.truncated")}
-            </li>
-          ) : null}
-          {notices.map((n, i) => (
-            <li
-              key={i}
-              data-testid="frame-notice"
-              className={cn(
-                "flex items-start gap-2 rounded-md border p-3 text-sm",
-                n.severity === "warning" ? "border-amber-500/40 bg-amber-500/10" : "bg-muted",
-              )}
-            >
-              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              {n.text}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <FrameNotices frame={frame} />
 
       {frame.fields.length > 0 ? (
         <div className="flex justify-end">

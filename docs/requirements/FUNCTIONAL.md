@@ -32,7 +32,7 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-012 | JSON and NDJSON file formats | M | M2 | In progress |
 | FR-013 | Table panel | M | M2 | In progress |
 | FR-018 | Explore page (ad-hoc query against a provisioned source) | M | M2 | In progress |
-| FR-014 | Time-series line chart panel | M | M2 | Planned |
+| FR-014 | Time-series line chart panel | M | M2 | In progress |
 | FR-020 | Local user accounts & sessions | M | M3 | Planned |
 | FR-021 | Role-based access control (Viewer / Editor / Admin) | M | M3 | Planned |
 | FR-022 | Encrypted data-source secrets | M | M3 | Planned |
@@ -377,6 +377,59 @@ virtualization for large results, and a visible "results truncated" signal.
   in forced-colors mode. Arrow keys scroll the focused region (AC7). Market baseline:
   Grafana, Datadog and Power BI tables all show clipped-column affordances (B-066).
 
+### FR-014 — Time-series panel (M)
+Renders one data frame as a line chart over time, next to the table panel in Explore.
+Market baseline (2026-11): Grafana's time-series panel (one line per numeric field, shared
+tooltip, legend that hides series on click, nulls drawn as gaps by default), Datadog and
+New Relic timeseries widgets (crosshair with all series at the hovered time), Power BI's
+"Show as a table" and Highcharts' keyboard navigation for accessibility, and Looker's
+"too many series" limit. dv draws the chart itself as SVG (no chart library), so it stays
+inside the CSP (no inline script, no `style-src 'unsafe-inline'` needed for data) and the
+bundle budget (NFR-PERF-004).
+- AC1: Explore shows a "Visualization" radio group with Table (default) and Time series.
+  The choice is kept in the URL (`view=timeseries`; absent means table) and restored on
+  load, like the query (FR-018 AC6); it changes how the result is drawn, never re-runs it.
+- AC2: a frame can be drawn when it has at least one `time` field and at least one
+  `number` field. The first `time` field is the x axis; every `number` field is a series,
+  named by `config.displayName` or the field name. Otherwise the panel says why ("needs a
+  time field and at least one number field", naming the fields it found) and offers the
+  table view; it never draws an empty or misleading chart.
+- AC3: points are drawn in time order without mutating the frame; rows whose time is null
+  are skipped; a null value breaks its line (a gap, never zero), as in Grafana's default
+  "connect null values: never". A series with a single point between gaps is drawn as a
+  dot so it is not invisible.
+- AC4: at most 8 series are drawn, in field order, each with a fixed colour slot from a
+  colour-vision-deficiency-checked categorical palette with separate light and dark steps
+  (colour follows the field, never its rank), and each with its own dash pattern from the
+  fifth slot on, so identity is never colour alone (WCAG 1.4.1). Further number fields are
+  listed in a notice ("3 more number fields are not drawn; see the table").
+- AC5: one y axis (never two scales) with "nice" round ticks that include zero when all
+  values are ≥ 0 and span the data otherwise; tick labels use `Intl.NumberFormat` with as many fraction
+  digits as the tick step needs, so adjacent labels never read the same (0.0001 steps show
+  four decimals), and the series' `config.unit` only when every visible series shares it. The x axis has round time
+  ticks (seconds to years) formatted with `Intl.DateTimeFormat` in the browser time zone
+  (NFR-I18N-002). Gridlines are recessive; a flat series (min = max) still gets a range.
+- AC6: a legend lists every drawn series with its colour/dash swatch; each entry is a
+  toggle button (`aria-pressed`) that hides or shows its series (at least one stays
+  visible) without changing other series' colours; the y range follows visible series.
+- AC7: hovering the plot, or focusing it and pressing ←/→ (Home/End for the ends), moves a
+  crosshair to the nearest time; a tooltip lists that time and each visible series' value
+  (`—` for null). The plot is one Tab stop (no `role="application"`); the SVG has
+  `role="img"` and an accessible name summarising the chart (series names, time range,
+  point count); the current crosshair reading is announced through a polite live region.
+- AC8: very large frames stay responsive: when a series has more non-null points than
+  twice the plot width in pixels, it is decimated per pixel column across the whole series,
+  nulls included: a column keeps the first, min, max and last point of its leading and
+  trailing null-free runs, collapses any runs in between to one min–max stroke, and breaks
+  the line where the column has a gap, so a column holds at most 10 points in 3 segments
+  whatever the null pattern (min/max keeps spikes visible; Codex review on #22 found that
+  per-segment decimation let alternating value/null rows bypass the budget). The tooltip
+  still reads exact values from the frame. A 100 000-row frame, dense or null-heavy,
+  builds its geometry in under 500 ms on CI hardware (NFR-PERF-005 AC3).
+- AC9: the same frame notices and truncation alerts as the table (FR-013 AC6) are shown
+  above the chart, and the table view stays one click away as the data-table alternative
+  (NFR-A11Y-004).
+
 ### FR-018 — Explore page (M)
 `/explore` runs one ad-hoc query against a provisioned data source (FR-017) through the
 query API (FR-016) and shows the frames in the table panel. Market baseline: Grafana
@@ -420,10 +473,9 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
   (`?ds=&path=&format=&maxRows=`) and restored on load; an unknown `ds` falls back to the
   first data source. The query only runs when the user presses Run.
 
-### FR-014 … FR-064
+### FR-020 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
 (see `docs/BACKLOG.md`). Draft intent:
-- **FR-014** Line chart needs one time field and ≥1 numeric field.
 - **FR-020/021** Argon2id-hashed passwords, server-side sessions, CSRF protection; RBAC enforced server-side on every endpoint.
 - **FR-022** Secrets encrypted with AES-256-GCM envelope encryption; write-only through the API.
 - **FR-030–033** Parameterized queries only; per-source read-only credentials recommended; statement timeouts and row limits.

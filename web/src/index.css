@@ -21,6 +21,17 @@
   --ring: oklch(0.5 0.1 185);
   --sidebar: oklch(0.97 0.006 210);
   --radius: 0.625rem;
+  /* Categorical chart slots (FR-014 AC4, NFR-A11Y-004 AC3): fixed order, CVD-validated
+     against the light card surface; slots 3–5 are below 3:1 there, so the legend, tooltip
+     and table view carry identity and values too. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
 }
 
 [data-theme="dark"] {
@@ -41,6 +52,15 @@
   --danger-soft: oklch(0.29 0.06 25);
   --ring: oklch(0.76 0.11 185);
   --sidebar: oklch(0.15 0.014 235);
+  /* Dark steps of the same slots, validated against the dark card surface (all ≥ 3:1). */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
 }
 
 @theme inline {
@@ -95,5 +115,52 @@
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
     }
+  }
+}
+
+/* Time-series panel (FR-014): each series element sets --series via .ts-sN. */
+.ts-s1 {
+  --series: var(--series-1);
+}
+.ts-s2 {
+  --series: var(--series-2);
+}
+.ts-s3 {
+  --series: var(--series-3);
+}
+.ts-s4 {
+  --series: var(--series-4);
+}
+.ts-s5 {
+  --series: var(--series-5);
+}
+.ts-s6 {
+  --series: var(--series-6);
+}
+.ts-s7 {
+  --series: var(--series-7);
+}
+.ts-s8 {
+  --series: var(--series-8);
+}
+.ts-line {
+  stroke: var(--series);
+  fill: none;
+}
+.ts-dot {
+  fill: var(--series);
+  stroke: var(--card);
+  stroke-width: 2px;
+}
+.ts-swatch {
+  stroke: var(--series);
+}
+@media (forced-colors: active) {
+  .ts-line,
+  .ts-swatch {
+    stroke: CanvasText;
+  }
+  .ts-dot {
+    fill: CanvasText;
   }
 }

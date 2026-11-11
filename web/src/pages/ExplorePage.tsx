@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Play, RefreshCw, Square, TerminalSquare } from "lucide-react";
+import { ChartLine, Play, RefreshCw, Square, Table2, TerminalSquare } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -12,6 +12,7 @@ import {
 import { useSearchParams } from "react-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { TablePanel } from "@/components/panels/TablePanel";
+import { TimeSeriesPanel } from "@/components/panels/TimeSeriesPanel";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,6 +95,7 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   const [errors, setErrors] = useState<{ path?: string; maxRows?: string; rowsPath?: string }>({});
   const [run, setRun] = useState<RunState>({ kind: "idle" });
   const [frameIdx, setFrameIdx] = useState(0);
+  const [view, setView] = useState<View>(parseView(params.get("view")));
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -119,6 +121,7 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
     if (rows !== undefined) search.maxRows = String(rows);
     if (typeof options?.rowsPath === "string") search.rowsPath = options.rowsPath;
     if (options?.flatten === true) search.flatten = "1";
+    if (view === "timeseries") search.view = view;
     setParams(search, { replace: true });
 
     abortRef.current?.abort();
@@ -165,6 +168,19 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
       e.preventDefault();
       void execute();
     }
+  };
+  // The view only changes how the result is drawn; it never re-runs the query (FR-014 AC1).
+  const changeView = (v: View) => {
+    setView(v);
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (v === "timeseries") next.set("view", v);
+        else next.delete("view");
+        return next;
+      },
+      { replace: true },
+    );
   };
   const cancel = () => {
     abortRef.current?.abort();
@@ -344,11 +360,20 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
 
       <section aria-labelledby={`${ids}-rt`} aria-busy={running} className="min-w-0">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle id={`${ids}-rt`}>{t("explore.resultTitle")}</CardTitle>
+            <ViewPicker view={view} onChange={changeView} />
           </CardHeader>
           <CardContent>
-            <Result run={run} frameIdx={frameIdx} setFrameIdx={setFrameIdx} />
+            <Result
+              run={run}
+              frameIdx={frameIdx}
+              setFrameIdx={setFrameIdx}
+              view={view}
+              onShowTable={() => {
+                changeView("table");
+              }}
+            />
           </CardContent>
         </Card>
       </section>
@@ -356,14 +381,70 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   );
 }
 
+type View = "table" | "timeseries";
+
+/** Only the known value selects the chart; anything else is the table (threat model F-13). */
+function parseView(raw: string | null): View {
+  return raw === "timeseries" ? "timeseries" : "table";
+}
+
+function ViewPicker({ view, onChange }: { view: View; onChange: (v: View) => void }) {
+  const name = useId();
+  const options: { value: View; label: string; icon: ReactNode }[] = [
+    { value: "table", label: t("explore.viewTable"), icon: <Table2 aria-hidden="true" /> },
+    {
+      value: "timeseries",
+      label: t("explore.viewTimeSeries"),
+      icon: <ChartLine aria-hidden="true" />,
+    },
+  ];
+  return (
+    <fieldset className="flex items-center gap-2">
+      <legend className="sr-only">{t("explore.visualization")}</legend>
+      <span aria-hidden="true" className="text-sm text-muted-foreground max-sm:hidden">
+        {t("explore.visualization")}
+      </span>
+      <div className="inline-flex rounded-md border bg-muted p-0.5">
+        {options.map((o) => (
+          <label
+            key={o.value}
+            className={cn(
+              "flex min-h-8 cursor-pointer items-center gap-1.5 rounded-sm px-2.5 text-sm [&_svg]:size-4",
+              "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring",
+              view === o.value ? "bg-card font-medium shadow-xs" : "text-muted-foreground",
+            )}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={o.value}
+              checked={view === o.value}
+              onChange={() => {
+                onChange(o.value);
+              }}
+              className="sr-only"
+            />
+            {o.icon}
+            {o.label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 function Result({
   run,
   frameIdx,
   setFrameIdx,
+  view,
+  onShowTable,
 }: {
   run: RunState;
   frameIdx: number;
   setFrameIdx: (i: number) => void;
+  view: View;
+  onShowTable: () => void;
 }) {
   const ids = useId();
   switch (run.kind) {
@@ -471,7 +552,11 @@ function Result({
           ? { role: "tabpanel", "aria-labelledby": `${ids}-tab-${String(idx)}` }
           : {})}
       >
-        <TablePanel key={idx} frame={frame} />
+        {view === "timeseries" ? (
+          <TimeSeriesPanel key={idx} frame={frame} onShowTable={onShowTable} />
+        ) : (
+          <TablePanel key={idx} frame={frame} />
+        )}
       </div>
     </div>
   );

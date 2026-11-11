@@ -190,6 +190,16 @@ disagree (documented in FR-012 AC7). A single huge string or array value inside 
 bounded only by `fileMaxBytes`, not by the byte limit, because a row is decoded before it
 can be measured.
 
+## F-13 Time-series panel (FR-014, NFR-A11Y-004, NFR-PERF-005)
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T | Field names, display names or units from a data source carry markup that ends up executed inside the SVG (`<script>`, `onload=`, `javascript:` links) | Labels, legend, tooltip and the accessible name are React text nodes; no `dangerouslySetInnerHTML`, no `href`/`xlink:href` built from data, no `<foreignObject>`; CSP forbids inline script | `TimeSeriesPanel.test.tsx` (hostile field name rendered as text), `explore.feature` |
+| T | Data-derived numbers are written into SVG geometry; `NaN`/`Infinity` or huge values produce broken paths or overflow | `decodeFrame` already rejects non-finite numbers and unsafe-integer times; scales clamp the domain and round coordinates to 0.1 px; a flat or single-point series gets a padded range | `timeseries.test.ts` |
+| D | A 100 000-row frame (the server's maximum, NFR-PERF-003) makes the chart build a path with 100 000 points per series and freezes the tab | Min/max decimation per pixel column across the whole series, nulls included (≤ 10 points in 3 segments per column), so alternating value/null rows cannot bypass it (FR-014 AC8, NFR-PERF-005 AC3); at most 8 series drawn (AC4); geometry memoised per frame and width | `timeseries.test.ts` (100 000-row dense and null-heavy budgets) |
+| I | The view parameter in the URL leaks data | `view` is an enum (`timeseries` or absent); unknown values fall back to the table | `ExplorePage.test.tsx` |
+| R/T | Colour-only encoding lets a reader confuse two series (misreading as a data-integrity issue) | Legend names, dash patterns from slot 5 on, validated palette, table alternative (NFR-A11Y-004) | Review, palette validator output in the PR |
+
 ## Planned features (threats to model at implementation time)
 
 - **F-04 AuthN/RBAC (M3):** credential stuffing, session fixation, CSRF, privilege escalation, IDOR → Argon2id, rotating session IDs, SameSite=strict cookies + CSRF tokens, server-side RBAC, object-level checks.
