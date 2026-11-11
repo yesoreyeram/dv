@@ -404,8 +404,9 @@ bundle budget (NFR-PERF-004).
   fifth slot on, so identity is never colour alone (WCAG 1.4.1). Further number fields are
   listed in a notice ("3 more number fields are not drawn; see the table").
 - AC5: one y axis (never two scales) with "nice" round ticks that include zero when all
-  values are ≥ 0 and span the data otherwise; tick labels use `Intl.NumberFormat` with the
-  first series' `config.unit` only when every series shares it. The x axis has round time
+  values are ≥ 0 and span the data otherwise; tick labels use `Intl.NumberFormat` with as many fraction
+  digits as the tick step needs, so adjacent labels never read the same (0.0001 steps show
+  four decimals), and the series' `config.unit` only when every visible series shares it. The x axis has round time
   ticks (seconds to years) formatted with `Intl.DateTimeFormat` in the browser time zone
   (NFR-I18N-002). Gridlines are recessive; a flat series (min = max) still gets a range.
 - AC6: a legend lists every drawn series with its colour/dash swatch; each entry is a
@@ -416,11 +417,15 @@ bundle budget (NFR-PERF-004).
   (`—` for null). The plot is one Tab stop (no `role="application"`); the SVG has
   `role="img"` and an accessible name summarising the chart (series names, time range,
   point count); the current crosshair reading is announced through a polite live region.
-- AC8: very large frames stay responsive: when a series has more points than twice the
-  plot width in pixels, it is reduced to the first, min, max and last point of each pixel
-  column (min/max decimation keeps spikes visible); the tooltip still reads exact values
-  from the frame. A 100 000-row frame renders in under 500 ms on CI hardware
-  (NFR-PERF-005 AC3).
+- AC8: very large frames stay responsive: when a series has more non-null points than
+  twice the plot width in pixels, it is decimated per pixel column across the whole series,
+  nulls included: a column keeps the first, min, max and last point of its leading and
+  trailing null-free runs, collapses any runs in between to one min–max stroke, and breaks
+  the line where the column has a gap, so a column holds at most 10 points in 3 segments
+  whatever the null pattern (min/max keeps spikes visible; Codex review on #22 found that
+  per-segment decimation let alternating value/null rows bypass the budget). The tooltip
+  still reads exact values from the frame. A 100 000-row frame, dense or null-heavy,
+  builds its geometry in under 500 ms on CI hardware (NFR-PERF-005 AC3).
 - AC9: the same frame notices and truncation alerts as the table (FR-013 AC6) are shown
   above the chart, and the table view stays one click away as the data-table alternative
   (NFR-A11Y-004).

@@ -149,6 +149,22 @@ describe("TimeSeriesPanel (FR-014)", () => {
     expect(screen.getByTestId("timeseries-unsupported")).toHaveTextContent("No rows have a time");
   });
 
+  it("labels small y ticks with enough decimals to tell them apart (Codex P2 on #22)", () => {
+    renderPanel({
+      name: "tiny",
+      meta: {},
+      length: 3,
+      fields: [
+        { name: "time", type: "time", config: {}, values: [T0, T0 + H, T0 + 2 * H] },
+        { name: "rate", type: "number", config: {}, values: [0.0001, 0.0002, 0.0003] },
+      ],
+    });
+    const labels = [
+      ...screen.getByTestId("timeseries-chart").querySelectorAll('text[text-anchor="end"]'),
+    ].map((el) => el.textContent);
+    expect(labels).toEqual(["0.0000", "0.0001", "0.0002", "0.0003"]);
+  });
+
   it("lists number fields beyond the series limit in a notice (AC4)", () => {
     const extra: Field[] = Array.from({ length: 7 }, (_, i) => ({
       name: `x${String(i)}`,

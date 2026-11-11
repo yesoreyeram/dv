@@ -9,6 +9,7 @@ import {
   niceYTicks,
   pathData,
   segments,
+  tickDecimals,
   timeOrder,
   timeSeriesShape,
   timeTicks,
@@ -124,6 +125,15 @@ describe("niceYTicks (FR-014 AC5)", () => {
   });
 });
 
+describe("tickDecimals (Codex P2 on #22)", () => {
+  it("shows enough decimals to tell adjacent ticks apart", () => {
+    expect(tickDecimals(niceYTicks(0.0001, 0.0003).ticks)).toBe(4);
+    expect(tickDecimals([0, 2.5, 5, 7.5])).toBe(1);
+    expect(tickDecimals([0, 20, 40])).toBe(0);
+    expect(tickDecimals([0, 1e-14])).toBe(12);
+  });
+});
+
 describe("timeTicks (FR-014 AC5)", () => {
   it("uses round hours for a day", () => {
     const { ticks, step } = timeTicks(T0, T0 + 23 * H, 6);
@@ -207,6 +217,34 @@ describe("segments (FR-014 AC3, AC8)", () => {
     for (let i = 1; i < seg.length; i++) {
       expect((seg[i]?.[0] ?? 0) >= (seg[i - 1]?.[0] ?? 0)).toBe(true);
     }
+  });
+
+  it("bounds geometry for null-heavy frames and keeps gaps and spikes (Codex P2 on #22)", () => {
+    const n = 100_000;
+    const width = 500;
+    const times = Array.from({ length: n }, (_, i) => i);
+    // Alternating value/null, with one spike in the middle of a pixel column.
+    const values = Array.from({ length: n }, (_, i) => (i % 2 ? null : i === 50_100 ? 999 : 1));
+    const x = linear(0, n - 1, 0, width);
+    const started = performance.now();
+    const segs = segments(times, times, values, x, id, width);
+    const elapsed = performance.now() - started;
+    const points = segs.reduce((acc, s) => acc + s.length, 0);
+    expect(segs.length).toBeLessThanOrEqual(3 * (width + 1));
+    expect(points).toBeLessThanOrEqual(10 * (width + 1));
+    expect(segs.some((s) => s.some(([, v]) => v === 999))).toBe(true);
+    expect(elapsed).toBeLessThan(500);
+  });
+
+  it("keeps a long gap visible when decimating", () => {
+    const n = 20_000;
+    const times = Array.from({ length: n }, (_, i) => i);
+    const values = times.map((i) => (i >= 8_000 && i < 12_000 ? null : i % 5));
+    const x = linear(0, n - 1, 0, 100);
+    const segs = segments(times, times, values, x, id, 100);
+    expect(segs).toHaveLength(2);
+    expect(segs[0]?.at(-1)?.[0]).toBeLessThan(40.1);
+    expect(segs[1]?.[0]?.[0]).toBeGreaterThan(59.9);
   });
 
   it("leaves small segments untouched", () => {

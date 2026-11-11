@@ -23,6 +23,7 @@ import {
   niceYTicks,
   pathData,
   segments,
+  tickDecimals,
   timeOrder,
   timeSeriesShape,
   timeTicks,
@@ -36,7 +37,6 @@ const DEFAULT_WIDTH = 640;
 const DAY = 86_400_000;
 
 const seriesName = (f: NumberField) => f.config.displayName ?? f.name;
-const numberFmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
 function timeLabelFormat(step: number): Intl.DateTimeFormat {
   if (step < 60_000) return new Intl.DateTimeFormat(undefined, { timeStyle: "medium" });
@@ -142,12 +142,13 @@ function Chart({
     [order, series, hiddenKey],
   );
   const y = niceYTicks(yExt?.[0] ?? 0, yExt?.[1] ?? 1);
+  const yDecimals = tickDecimals(y.ticks);
   const xs = linear(tMin, tMax, MARGIN.left, MARGIN.left + plotW);
   const ys = linear(y.min, y.max, MARGIN.top + plotH, MARGIN.top);
   const xt = timeTicks(tMin, tMax, Math.max(2, Math.floor(plotW / 110)));
   const xFmt = timeLabelFormat(xt.step);
   const units = new Set(visible.map((f) => f.config.unit ?? ""));
-  const unit = units.size === 1 ? [...units][0] : "";
+  const unit = units.size === 1 ? ([...units][0] ?? "") : "";
 
   // Geometry depends only on the frame, the width and which series are visible.
   const paths = useMemo(
@@ -270,7 +271,7 @@ function Chart({
                     textAnchor="end"
                     className="fill-muted-foreground tabular-nums"
                   >
-                    {unit ? formatNumber(v, { unit }) : numberFmt.format(v)}
+                    {formatNumber(v, { unit, decimals: yDecimals })}
                   </text>
                 </g>
               ))}

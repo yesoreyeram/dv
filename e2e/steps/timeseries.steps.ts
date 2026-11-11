@@ -8,7 +8,10 @@ const legend = (page: Page) => page.getByRole("list", { name: "Series" });
 When("I choose the visualization {string}", async ({ page }, name: string) => {
   // The radio is visually hidden inside its label (a segmented control), so click the label
   // the way a pointer user does, then confirm the radio took the change.
-  await page.locator("label").filter({ has: page.getByRole("radio", { name }) }).click();
+  await page
+    .locator("label")
+    .filter({ has: page.getByRole("radio", { name }) })
+    .click();
   await expect(page.getByRole("radio", { name })).toBeChecked();
 });
 

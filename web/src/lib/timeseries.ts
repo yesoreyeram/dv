@@ -61,6 +61,24 @@ export interface Ticks {
   ticks: number[];
 }
 
+/**
+ * Fraction digits that keep adjacent tick labels distinct (AC5): the decimals of the tick
+ * step, so 0.0001-spaced ticks never all read "0". Capped at 12.
+ */
+export function tickDecimals(ticks: readonly number[]): number {
+  const a = ticks[0];
+  const b = ticks[1];
+  if (a === undefined || b === undefined) return 0;
+  const step = Math.abs(b - a);
+  if (!(step > 0)) return 0;
+  for (let d = 0; d < 12; d++) {
+    const scaled = step * 10 ** d;
+    const r = Math.round(scaled);
+    if (r >= 1 && Math.abs(scaled - r) < 1e-6 * scaled) return d;
+  }
+  return 12;
+}
+
 function niceStep(raw: number): number {
   const exp = Math.floor(Math.log10(raw));
   const base = 10 ** exp;
@@ -164,9 +182,11 @@ export function linear(d0: number, d1: number, r0: number, r1: number): Scale {
 export type Point = readonly [x: number, y: number];
 
 /**
- * Splits a series into gap-free segments of screen points (AC3) and, when a segment has
- * more than two points per pixel column, keeps only the first, min, max and last point of
- * each column (AC8), so spikes stay visible and the path stays small.
+ * Splits a series into gap-free segments of screen points (AC3). When the series has more
+ * non-null points than twice the plot width, it is decimated per pixel column across the
+ * whole series, nulls included (AC8): each column keeps at most 10 points in at most 3
+ * segments, so neither long runs nor null-heavy frames (one lone point per row) can grow
+ * the geometry with the frame. Spikes (column min/max) and gaps stay visible.
  */
 export function segments(
   order: readonly number[],
@@ -176,6 +196,9 @@ export function segments(
   y: Scale,
   plotWidth: number,
 ): Point[][] {
+  let n = 0;
+  for (const row of order) if (values[row] !== null && values[row] !== undefined) n++;
+  if (n > Math.max(2, 2 * plotWidth)) return decimated(order, times, values, x, y);
   const out: Point[][] = [];
   let cur: Point[] = [];
   for (const row of order) {
@@ -188,32 +211,122 @@ export function segments(
     cur.push([x(at(times, row)), y(v)]);
   }
   if (cur.length) out.push(cur);
-  const budget = Math.max(2, 2 * plotWidth);
-  return out.map((seg) => (seg.length > budget ? decimate(seg) : seg));
+  return out;
 }
 
-function decimate(seg: Point[]): Point[] {
+/** First, min, max and last point of a null-free run inside one pixel column. */
+interface Run {
+  first: Point;
+  min: Point;
+  max: Point;
+  last: Point;
+  /** Sequence numbers of the four points, to keep their original order. */
+  seq: [number, number, number, number];
+}
+
+function runPoints(r: Run): Point[] {
+  const pts: [number, Point][] = [
+    [r.seq[0], r.first],
+    [r.seq[1], r.min],
+    [r.seq[2], r.max],
+    [r.seq[3], r.last],
+  ];
+  pts.sort((a, b) => a[0] - b[0]);
   const out: Point[] = [];
-  let i = 0;
-  while (i < seg.length) {
-    const col = Math.floor(seg[i]?.[0] ?? 0);
-    let lo = i;
-    let hi = i;
-    let j = i + 1;
-    for (; j < seg.length; j++) {
-      const p = seg[j];
-      if (!p || Math.floor(p[0]) !== col) break;
-      if (p[1] < (seg[lo]?.[1] ?? 0)) lo = j;
-      if (p[1] > (seg[hi]?.[1] ?? 0)) hi = j;
-    }
-    // First, min, max and last of the column, in their original order, without repeats.
-    const keep = [...new Set([i, lo, hi, j - 1])].sort((a, b) => a - b);
-    for (const k of keep) {
-      const p = seg[k];
-      if (p) out.push(p);
-    }
-    i = j;
+  let prev = -1;
+  for (const [k, p] of pts) {
+    if (k !== prev) out.push(p);
+    prev = k;
   }
+  return out;
+}
+
+function decimated(
+  order: readonly number[],
+  times: readonly (number | null)[],
+  values: readonly (number | null)[],
+  x: Scale,
+  y: Scale,
+): Point[][] {
+  const out: Point[][] = [];
+  let cur: Point[] = [];
+  const brk = () => {
+    if (cur.length) out.push(cur);
+    cur = [];
+  };
+
+  let col = Number.NaN;
+  let runs: Run[] = [];
+  let open: Run | null = null;
+  let startsWithGap = false;
+  let endsWithGap = false;
+  let seenValue = false;
+
+  const flush = () => {
+    if (Number.isNaN(col)) return;
+    if (startsWithGap || runs.length === 0) brk();
+    const firstRun = runs[0];
+    if (firstRun) cur.push(...runPoints(firstRun));
+    if (runs.length > 1) {
+      brk();
+      const middle = runs.slice(1, -1);
+      if (middle.length > 0) {
+        // Middle runs collapse to one vertical stroke from their min to their max point.
+        let lo: Point | null = null;
+        let hi: Point | null = null;
+        for (const r of middle) {
+          if (!lo || r.min[1] < lo[1]) lo = r.min;
+          if (!hi || r.max[1] > hi[1]) hi = r.max;
+        }
+        if (lo && hi) out.push(lo === hi ? [lo] : [lo, hi]);
+      }
+      const lastRun = runs.at(-1);
+      if (lastRun) cur.push(...runPoints(lastRun));
+    }
+    if (endsWithGap) brk();
+  };
+
+  let seq = 0;
+  for (const row of order) {
+    const px = x(at(times, row));
+    const c = Math.floor(px);
+    if (c !== col) {
+      flush();
+      col = c;
+      runs = [];
+      open = null;
+      startsWithGap = false;
+      seenValue = false;
+    }
+    const v = values[row];
+    if (v === null || v === undefined) {
+      if (!seenValue) startsWithGap = true;
+      open = null;
+      endsWithGap = true;
+      continue;
+    }
+    seenValue = true;
+    endsWithGap = false;
+    const p: Point = [px, y(v)];
+    seq++;
+    if (!open) {
+      open = { first: p, min: p, max: p, last: p, seq: [seq, seq, seq, seq] };
+      runs.push(open);
+    } else {
+      if (p[1] < open.min[1]) {
+        open.min = p;
+        open.seq[1] = seq;
+      }
+      if (p[1] > open.max[1]) {
+        open.max = p;
+        open.seq[2] = seq;
+      }
+      open.last = p;
+      open.seq[3] = seq;
+    }
+  }
+  flush();
+  brk();
   return out;
 }
 
