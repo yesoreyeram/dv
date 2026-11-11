@@ -16,7 +16,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-013 | JSON and NDJSON formats (`json`, `ndjson`; rowsPath, flatten, streaming limits) | M2 | FR-012 | In review (PR from `feat/json-source`) |
 | B-014 | `POST /api/v1/query` endpoint (body limits, strict JSON, per-refId results, 207 on partial failure, ≤ 20 queries / 4 concurrent, per-query timeout, off by default + loopback-only gate) | M2 | FR-016, FR-010, NFR-SEC-009, NFR-SEC-016 | Done (merged in #16, #17) |
 | B-015 | Explore page: source picker, query, table panel | M2 | FR-013, FR-018, NFR-PERF-005, NFR-A11Y-004 | Done (merged in #18) |
-| B-016 | Line-chart panel with table alternative | M2 | FR-014, NFR-A11Y-004 | Todo |
+| B-016 | Time-series panel (SVG line chart, legend toggles, keyboard crosshair, decimation) with table alternative in Explore | M2 | FR-014, NFR-A11Y-004, NFR-PERF-005 AC3 | In review (PR from `feat/timeseries-panel`) |
 | B-017 | i18n message catalog + `Intl` formatting helpers | M2 | NFR-I18N-001/002 | Todo |
 | B-020 | Require auth for `/api/v1/version` once M3 lands | M3 | NFR-SEC-003 | Todo |
 | B-021 | Trusted-proxy configuration for client IP (rate limiting behind ingress) | M3 | NFR-SEC-008 | Todo |
