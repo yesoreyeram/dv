@@ -365,6 +365,70 @@ describe("Explore page (FR-018)", () => {
 });
 
 describe("readQueryOutcome (FR-018 AC5)", () => {
+  describe("visualization picker (FR-014 AC1)", () => {
+    const tsFrame = {
+      schema: {
+        name: "cpu.csv",
+        fields: [
+          { name: "time", type: "time" },
+          { name: "web-1", type: "number" },
+        ],
+      },
+      data: {
+        values: [
+          [Date.UTC(2026, 10, 10), Date.UTC(2026, 10, 10, 1)],
+          [16.4, 19.9],
+        ],
+      },
+    };
+    const tsOk = () => ({
+      status: 200,
+      body: { results: { A: { status: 200, frames: [tsFrame] } } },
+    });
+
+    it("switches between table and time series without re-running the query", async () => {
+      const user = userEvent.setup();
+      const { fetchMock } = renderApp("/explore?path=cpu.csv", responder(tsOk));
+      const table = await screen.findByRole("radio", { name: "Table" });
+      expect(table).toBeChecked();
+      await user.click(screen.getByRole("button", { name: "Run query" }));
+      expect(await screen.findByRole("table", { name: "cpu.csv, 2 rows" })).toBeInTheDocument();
+      await user.click(screen.getByRole("radio", { name: "Time series" }));
+      expect(screen.getByRole("img", { name: /^Line chart of web-1 over time/ })).toBeVisible();
+      expect(screen.queryByRole("table")).toBeNull();
+      await user.click(screen.getByRole("radio", { name: "Table" }));
+      expect(screen.getByRole("table", { name: "cpu.csv, 2 rows" })).toBeInTheDocument();
+      const runs = fetchMock.mock.calls.filter(([p]) => p === "/api/v1/query");
+      expect(runs).toHaveLength(1);
+    });
+
+    it("keeps the chosen view when the query runs again", async () => {
+      const user = userEvent.setup();
+      renderApp("/explore?path=cpu.csv&view=timeseries", responder(tsOk));
+      expect(await screen.findByRole("radio", { name: "Time series" })).toBeChecked();
+      expect(screen.getByTestId("explore-empty")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Run query" }));
+      expect(await screen.findByTestId("timeseries-chart")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Run query" }));
+      expect(await screen.findByTestId("timeseries-chart")).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Time series" })).toBeChecked();
+    });
+
+    it("falls back to the table for an unknown view value", async () => {
+      renderApp("/explore?view=%3Cscript%3E", responder(tsOk));
+      expect(await screen.findByRole("radio", { name: "Table" })).toBeChecked();
+    });
+
+    it("offers the table when the frame cannot be charted", async () => {
+      const user = userEvent.setup();
+      renderApp("/explore?path=sales.csv&view=timeseries", responder(ok));
+      await user.click(await screen.findByRole("button", { name: "Run query" }));
+      await user.click(await screen.findByRole("button", { name: "Show as table" }));
+      expect(screen.getByRole("radio", { name: "Table" })).toBeChecked();
+      expect(screen.getByRole("table", { name: "sales.csv, 2 rows" })).toBeInTheDocument();
+    });
+  });
+
   it("rejects malformed bodies and frames with a generic decode error", () => {
     for (const body of [null, [], { results: {} }, { results: { A: { status: "200" } } }]) {
       const o = readQueryOutcome(200, body, "A");
