@@ -25,7 +25,7 @@ lets users build queries, panels and dashboards.
 
 ## Quick start
 
-Requirements: Go ≥ 1.27.3 (a supported release; Go 1.24 lost support on 2026-02-10, and releases before 1.24.7 let `os.Root` escape through symlinks to `..`), Node ≥ 22.12 (CI and the image use Node 26, the Active LTS line), pnpm 10 (`npm install -g pnpm@10.28.0`; Node ≥ 25 no longer ships corepack), GNU make. With [mise](https://mise.jdx.dev), `mise install` installs the pinned versions from `mise.toml`.
+Requirements: Go ≥ 1.27.4 (a supported release; Go 1.24 lost support on 2026-02-10, and releases before 1.24.7 let `os.Root` escape through symlinks to `..`), Node ≥ 22.12 (CI and the image use Node 26, the Active LTS line), pnpm 10 (`npm install -g pnpm@10.28.0`; Node ≥ 25 no longer ships corepack), GNU make. With [mise](https://mise.jdx.dev), `mise install` installs the pinned versions from `mise.toml`.
 
 ```bash
 make deps          # go mod download + pnpm install

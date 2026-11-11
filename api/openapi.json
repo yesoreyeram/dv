@@ -185,7 +185,7 @@
           "version": { "type": "string", "examples": ["0.1.0"] },
           "commit": { "type": "string", "examples": ["abc1234"] },
           "buildDate": { "type": "string", "examples": ["2026-11-07T00:00:00Z"] },
-          "goVersion": { "type": "string", "examples": ["go1.27.3"] }
+          "goVersion": { "type": "string", "examples": ["go1.27.4"] }
         }
       },
       "PluginCatalog": {
