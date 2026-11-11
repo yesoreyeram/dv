@@ -30,7 +30,8 @@ if (( docker_node % 2 != 0 || docker_node < ${node_mise%%.*} )); then
 fi
 while read -r v; do check "node major (ci.yml)" "${node_mise%%.*}" "$v"; done \
   < <(sed -nE 's/^[[:space:]]*node-version: ([0-9]+)$/\1/p' .github/workflows/ci.yml)
-check "golangci-lint (ci.yml)" "v$lint_mise" "$(sed -nE 's/^[[:space:]]*version: (v[0-9.]+)$/\1/p' .github/workflows/ci.yml | head -n1)"
+# NFR-SEC-015 AC7: CI builds golangci-lint with `go install …/golangci-lint@vX.Y.Z`.
+check "golangci-lint (ci.yml)" "v$lint_mise" "$(sed -nE 's#.*github\.com/golangci/golangci-lint/v2/cmd/golangci-lint@(v[0-9][0-9.]*).*#\1#p' .github/workflows/ci.yml | head -n1)"
 
 # NFR-SEC-015 AC6: govulncheck scans the go.mod toolchain (no silent toolchain switch) and
 # prints the Go version it scanned.

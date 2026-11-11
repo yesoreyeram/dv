@@ -33,11 +33,15 @@ jobs:
           go-version: stable
       - run: go mod verify
       - run: go vet ./...
+      # NFR-SEC-015 AC7: built from the Go module proxy (go.sum/sumdb-verified, exact version)
+      # rather than the action's GitHub Releases download, which 504'd twice on 2026-11-09.
+      # The version must equal mise.toml (scripts/check-toolchain.sh); Renovate bumps both.
       - name: golangci-lint (includes gosec)
         if: matrix.go == 'go.mod'
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.15.0
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          "$(go env GOPATH)/bin/golangci-lint" version
+          "$(go env GOPATH)/bin/golangci-lint" run ./...
       - name: Unit tests (race + coverage)
         run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
       - name: Coverage gate (internal/ >= 80%)

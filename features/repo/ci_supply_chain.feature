@@ -100,6 +100,18 @@ Feature: CI workflows only run tools that are pinned and verified (NFR-SEC-015)
       | a different SHA-256        | fails and leaves no "tool" or temporary file    |
       | a malformed SHA-256        | fails and leaves no "tool" or temporary file    |
 
+  Scenario: The helper rides out a short upstream outage (AC7)
+    # 4 failures need about 15 s of backoff: more than 3 retries, still well inside 240 s.
+    Given an HTTPS server that answers 504 4 times before serving "release bytes" at "/tool"
+    When the helper fetches "/tool" with the SHA-256 of the content into "tool"
+    Then the helper succeeds and "tool" holds the content
+
+  Scenario: The helper does not retry a permanent error (AC7)
+    Given an HTTPS server that serves "release bytes" at "/tool"
+    When the helper fetches "/missing" with the SHA-256 of the content into "tool"
+    Then the helper fails and leaves no "tool" or temporary file
+    And the server saw 1 request
+
   Scenario: The helper refuses plain HTTP
     Given an HTTPS server that serves "release bytes" at "/tool"
     When the helper fetches the plain-HTTP URL of "/tool" with the SHA-256 of the content into "tool"

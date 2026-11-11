@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/cucumber/godog"
 
@@ -26,6 +27,7 @@ type fetchWorld struct {
 	dir  string
 	out  string
 	err  error
+	hits atomic.Int64
 }
 
 func (f *fetchWorld) close() {
@@ -86,11 +88,16 @@ func initializeCIPolicyScenario(sc *godog.ScenarioContext) {
 		f.close()
 		return ctx, err
 	})
-	sc.Step(`^an HTTPS server that serves "([^"]*)" at "([^"]*)"$`, func(body, path string) error {
+	serve := func(body, path string, failures int64) error {
 		f.body = body
 		f.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n := f.hits.Add(1)
 			if r.URL.Path != path {
 				http.NotFound(w, r)
+				return
+			}
+			if n <= failures {
+				http.Error(w, "upstream timed out", http.StatusGatewayTimeout)
 				return
 			}
 			_, _ = w.Write([]byte(body))
@@ -104,6 +111,18 @@ func initializeCIPolicyScenario(sc *godog.ScenarioContext) {
 			return err
 		}
 		return ca.Close()
+	}
+	sc.Step(`^an HTTPS server that serves "([^"]*)" at "([^"]*)"$`, func(body, path string) error {
+		return serve(body, path, 0)
+	})
+	sc.Step(`^an HTTPS server that answers 504 (\d+) times before serving "([^"]*)" at "([^"]*)"$`, func(n int, body, path string) error {
+		return serve(body, path, int64(n))
+	})
+	sc.Step(`^the server saw (\d+) requests?$`, func(n int) error {
+		if got := f.hits.Load(); got != int64(n) {
+			return fmt.Errorf("server saw %d requests, want %d", got, n)
+		}
+		return nil
 	})
 	sc.Step(`^the helper fetches "([^"]*)" with (the SHA-256 of the content|a different SHA-256|a malformed SHA-256) into "([^"]*)"$`, func(path, which, out string) error {
 		hash, err := f.hashFor(which)
