@@ -18,10 +18,10 @@ export function PlannedPage({
     <>
       <PageHeader title={title} />
       <Card>
-        <CardContent className="flex flex-col items-start gap-4 p-8">
+        <CardContent className="flex flex-col items-start gap-3 p-6">
           <span
             aria-hidden="true"
-            className="grid size-11 place-items-center rounded-lg bg-accent text-accent-foreground"
+            className="grid size-9 place-items-center rounded-lg bg-accent text-accent-foreground"
           >
             <Construction className="size-5" />
           </span>

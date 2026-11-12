@@ -2,6 +2,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { readQueryOutcome } from "@/lib/api";
+import { readHistory, recordQuery } from "@/lib/history";
+import { PREF_KEYS } from "@/lib/prefs";
 import { defaultResponder, renderApp, type Responder } from "@/test/render";
 
 const sources = {
@@ -446,5 +448,211 @@ describe("readQueryOutcome (FR-018 AC5)", () => {
       status: 415,
       error: { code: "unsupported_media_type", message: "" },
     });
+  });
+});
+
+describe("Explore workspace: splitter and result states (FR-018 AC8, AC10)", () => {
+  it("resizes the editor from the keyboard and remembers the width (AC8)", async () => {
+    const user = userEvent.setup();
+    const first = renderApp("/explore", responder(ok));
+    const sep = await screen.findByRole("separator", { name: "Resize query editor" });
+    const editor = screen.getByTestId("explore-editor");
+    expect(sep).toHaveAttribute("aria-controls", editor.id);
+    expect(sep).toHaveAttribute("aria-valuenow", "360");
+    expect(editor.parentElement?.style.getPropertyValue("--split")).toBe("360px");
+    sep.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(sep).toHaveAttribute("aria-valuenow", "376");
+    expect(editor.parentElement?.style.getPropertyValue("--split")).toBe("376px");
+    expect(window.localStorage.getItem(PREF_KEYS.split)).toBe("376");
+    first.unmount();
+
+    renderApp("/explore", responder(ok));
+    expect(await screen.findByRole("separator")).toHaveAttribute("aria-valuenow", "376");
+  });
+
+  it.each([
+    ["not a number", "wide", "360"],
+    ["too large", "5000", "640"],
+    ["too small", "-1", "280"],
+  ])("handles a stored width that is %s", async (_, stored, want) => {
+    window.localStorage.setItem(PREF_KEYS.split, stored);
+    renderApp("/explore", responder(ok));
+    expect(await screen.findByRole("separator")).toHaveAttribute("aria-valuenow", want);
+  });
+
+  it("shows an empty state with the shortcut, then a skeleton while running (AC10)", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    const fetchMock = renderApp("/explore?path=slow.csv", responder(ok)).fetchMock;
+    const real = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((input, init) =>
+      input === "/api/v1/query"
+        ? new Promise<Response>((resolve) => {
+            release = () => {
+              resolve(new Response(JSON.stringify(ok().body), { status: 200 }));
+            };
+          })
+        : (real?.(input, init) ?? Promise.reject(new Error("no fetch"))),
+    );
+    const empty = await screen.findByTestId("explore-empty");
+    expect(empty).toHaveTextContent("Press Run query to see the result.");
+    expect(empty).toHaveTextContent("Ctrl+Enter or ⌘+Enter");
+
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    const running = await screen.findByTestId("explore-running");
+    expect(within(running).getByRole("status")).toHaveTextContent("Running…");
+    expect(screen.getByRole("region", { name: "Result" })).toHaveAttribute("aria-busy", "true");
+    release?.();
+    expect(await screen.findByRole("table", { name: "sales.csv, 2 rows" })).toBeInTheDocument();
+    expect(screen.queryByTestId("explore-running")).toBeNull();
+  });
+});
+
+describe("Explore query history (FR-018 AC9, NFR-SEC-019)", () => {
+  const openHistory = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: "History" }));
+    return screen.getByTestId("history-panel");
+  };
+
+  it("records each run with the fields of the URL and never the result", async () => {
+    const user = userEvent.setup();
+    renderApp("/explore", responder(ok));
+    await user.type(await screen.findByRole("textbox", { name: "Path" }), "data.json");
+    await user.type(screen.getByRole("textbox", { name: "Rows path" }), "data.items");
+    await user.click(screen.getByRole("checkbox", { name: "Flatten nested objects" }));
+    await user.type(screen.getByRole("textbox", { name: "Row limit" }), "25");
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    await screen.findByRole("table");
+
+    const entries = readHistory();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      ds: "samples",
+      path: "data.json",
+      maxRows: 25,
+      rowsPath: "data.items",
+      flatten: true,
+    });
+    expect(Object.keys(entries[0] ?? {}).sort()).toEqual(
+      ["at", "ds", "flatten", "maxRows", "path", "rowsPath"].sort(),
+    );
+    expect(window.localStorage.getItem(PREF_KEYS.history)).not.toContain("emea");
+
+    // Running the same query again keeps one entry.
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    await screen.findByRole("table");
+    expect(readHistory()).toHaveLength(1);
+  });
+
+  it("does not record a query that failed validation", async () => {
+    const user = userEvent.setup();
+    renderApp("/explore", responder(ok));
+    await user.click(await screen.findByRole("button", { name: "Run query" }));
+    expect(screen.getByRole("textbox", { name: "Path" })).toHaveAttribute("aria-invalid", "true");
+    expect(readHistory()).toEqual([]);
+  });
+
+  it("lists entries, refills the form without running, and closes (AC9, AC6)", async () => {
+    recordQuery({ ds: "logs", path: "app.csv", format: "csv", maxRows: 7 }, Date.now() - 120_000);
+    recordQuery({ ds: "gone", path: "old.tsv" }, Date.now() - 3 * 86_400_000);
+    recordQuery({ ds: "samples", path: "<img src=x onerror=alert(1)>.csv" }, Date.now());
+    const user = userEvent.setup();
+    const { fetchMock } = renderApp("/explore?ds=samples&path=now.csv", responder(ok));
+    const button = await screen.findByRole("button", { name: "History" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    const panel = await openHistory(user);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveAccessibleName("Recent queries");
+
+    const rows = within(panel).getAllByTestId("history-entry");
+    expect(rows.map((r) => within(r).getByTestId("history-path").textContent)).toEqual([
+      "<img src=x onerror=alert(1)>.csv",
+      "old.tsv",
+      "app.csv",
+    ]);
+    expect(document.querySelector("img")).toBeNull();
+    expect(rows[0]).toHaveTextContent("Sample files · now");
+    expect(rows[1]).toHaveTextContent("gone (not available) · 3 days ago");
+    expect(rows[2]).toHaveTextContent("Logs · csv · ≤ 7 · 2 minutes ago");
+    expect(within(panel).getByText(/Results are never stored/)).toBeInTheDocument();
+
+    const third = rows[2];
+    if (!third) throw new Error("expected three history entries");
+    await user.click(third);
+    expect(screen.queryByTestId("history-panel")).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("app.csv");
+    });
+    expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("logs");
+    expect(screen.getByRole("combobox", { name: "Format" })).toHaveValue("csv");
+    expect(screen.getByRole("textbox", { name: "Row limit" })).toHaveValue("7");
+    expect(screen.getByTestId("explore-empty")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([p]) => p === "/api/v1/query")).toBe(false);
+  });
+
+  it("falls back to the first source for an entry whose source is gone", async () => {
+    recordQuery({ ds: "gone", path: "old.tsv" });
+    const user = userEvent.setup();
+    renderApp("/explore", responder(ok));
+    await screen.findByRole("button", { name: "History" });
+    const panel = await openHistory(user);
+    await user.click(within(panel).getByTestId("history-entry"));
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("old.tsv");
+    });
+    expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("samples");
+  });
+
+  it("keeps a result on screen when a run updates the URL (no remount)", async () => {
+    const user = userEvent.setup();
+    renderApp("/explore", responder(ok));
+    await user.type(await screen.findByRole("textbox", { name: "Path" }), "a.csv");
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    await openHistory(user);
+    await user.click(screen.getByTestId("history-entry"));
+    // Restoring is explicit: the form is refilled and the old result is cleared.
+    await waitFor(() => {
+      expect(screen.getByTestId("explore-empty")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+  });
+
+  it("clears the history and closes on Escape or an outside press", async () => {
+    recordQuery({ ds: "samples", path: "a.csv" });
+    const user = userEvent.setup();
+    renderApp("/explore", responder(ok));
+    const button = await screen.findByRole("button", { name: "History" });
+    let panel = await openHistory(user);
+    await user.click(within(panel).getByRole("button", { name: "Clear history" }));
+    expect(within(panel).getByTestId("history-empty")).toHaveTextContent("No queries yet.");
+    expect(within(panel).queryByRole("button", { name: "Clear history" })).toBeNull();
+    expect(window.localStorage.getItem(PREF_KEYS.history)).toBeNull();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("history-panel")).toBeNull();
+    expect(button).toHaveFocus();
+
+    panel = await openHistory(user);
+    await user.keyboard("a");
+    expect(panel).toBeInTheDocument();
+    await user.click(screen.getByRole("heading", { level: 1 }));
+    expect(screen.queryByTestId("history-panel")).toBeNull();
+
+    await openHistory(user);
+    await user.click(button);
+    expect(screen.queryByTestId("history-panel")).toBeNull();
+  });
+
+  it("ignores a tampered history document", async () => {
+    window.localStorage.setItem(PREF_KEYS.history, '[{"ds":"samples","path":7,"at":1},"x",null]');
+    const user = userEvent.setup();
+    renderApp("/explore", responder(ok));
+    await screen.findByRole("button", { name: "History" });
+    const panel = await openHistory(user);
+    expect(within(panel).getByTestId("history-empty")).toBeInTheDocument();
   });
 });

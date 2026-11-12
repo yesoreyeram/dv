@@ -44,7 +44,7 @@ checked; anything listed as CI-enforced must be a failing job when violated.
 | NFR-AVAIL-001 | Graceful shutdown on SIGINT/SIGTERM: readiness flips to 503, in-flight requests drain within a configurable timeout (default 15 s). | M | Unit test | In progress |
 | NFR-AVAIL-002 | Separate liveness and readiness probes suitable for Kubernetes. | M | FR-001/002 | In progress |
 | NFR-AVAIL-003 | All outbound calls and data-source queries take a `context.Context` with deadlines. | M | Code review; `contextcheck` lint | In progress |
-| NFR-AVAIL-004 | A defect in one page of the UI does not take down the whole application. **AC1:** a render error is caught by an error boundary around the routed page; the top bar and navigation keep working (FR-005 AC13). **AC2:** the fallback is an alert with "Try again" (re-renders the page) and "Reload"; it shows no exception text or stack. **AC3:** the error is written to the browser console once for diagnosis and is not sent anywhere. **AC4:** moving to another route clears the fallback. | M | Vitest (`ErrorBoundary.test.tsx`) | In progress |
+| NFR-AVAIL-004 | A defect in one page of the UI does not take down the whole application. **AC1:** a render error is caught by an error boundary around the routed page; the top bar and navigation keep working (FR-005 AC13). **AC2:** the fallback is an alert with "Try again" (re-renders the page) and "Reload"; it shows no exception text or stack. **AC3:** the error is reported to the browser console for diagnosis (React's handler for caught errors) and is not sent anywhere. **AC4:** moving to another route clears the fallback. | M | Vitest (`ErrorBoundary.test.tsx`) | In progress |
 
 ## Observability (OBS)
 
