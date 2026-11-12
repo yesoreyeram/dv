@@ -1,19 +1,31 @@
-import { useCallback, useState } from "react";
-import { applyTheme, getInitialTheme, persistTheme, type Theme } from "./theme";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  applyTheme,
+  getInitialTheme,
+  getThemePreference,
+  setThemePreference,
+  subscribeTheme,
+  type Theme,
+  type ThemePreference,
+} from "./theme";
 
-export function useTheme(): { theme: Theme; toggle: () => void } {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const initial = getInitialTheme();
-    applyTheme(initial);
-    return initial;
-  });
+/**
+ * The effective theme and the stored preference, shared by every caller (top bar, command
+ * palette). While no preference is stored the theme follows OS changes (FR-005 AC12).
+ */
+export function useTheme(): {
+  theme: Theme;
+  preference: ThemePreference;
+  toggle: () => void;
+  setPreference: (pref: ThemePreference) => void;
+} {
+  const theme = useSyncExternalStore(subscribeTheme, getInitialTheme);
+  const preference = useSyncExternalStore(subscribeTheme, getThemePreference);
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
   const toggle = useCallback(() => {
-    setTheme((prev) => {
-      const next: Theme = prev === "dark" ? "light" : "dark";
-      applyTheme(next);
-      persistTheme(next);
-      return next;
-    });
+    setThemePreference(getInitialTheme() === "dark" ? "light" : "dark");
   }, []);
-  return { theme, toggle };
+  return { theme, preference, toggle, setPreference: setThemePreference };
 }

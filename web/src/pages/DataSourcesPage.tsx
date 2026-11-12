@@ -26,16 +26,16 @@ function Section({
 }) {
   return (
     <Card aria-labelledby={id} data-testid={id}>
-      <CardHeader className="flex-row items-start gap-3">
+      <CardHeader className="flex-row items-center gap-2.5">
         <span
           aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-md bg-accent text-accent-foreground"
+          className="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-accent-foreground"
         >
           {icon}
         </span>
         <div className="flex flex-col gap-1">
           <CardTitle id={id}>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
+          <CardDescription className="text-xs">{description}</CardDescription>
         </div>
       </CardHeader>
       <CardContent>
@@ -59,10 +59,15 @@ function PluginItem({
   tags: string[];
 }) {
   return (
-    <li className="flex flex-col gap-2 rounded-md border p-4" data-testid="plugin">
+    <li
+      className="flex flex-col gap-1.5 rounded-md border bg-background/50 p-3"
+      data-testid="plugin"
+    >
       <div className="flex flex-wrap items-baseline gap-2">
-        <h3 className="font-medium">{name}</h3>
-        <code className="text-xs text-muted-foreground">{id}</code>
+        <h3 className="text-sm font-medium">{name}</h3>
+        <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.6875rem] text-muted-foreground">
+          {id}
+        </code>
       </div>
       <p className="text-sm text-muted-foreground">{description}</p>
       {tags.length > 0 ? (
@@ -85,7 +90,7 @@ export function DataSourcesPage() {
   return (
     <>
       <PageHeader title={t("dataSources.title")} subtitle={t("dataSources.subtitle")} />
-      <div className="mb-6 max-w-prose space-y-1 text-sm text-muted-foreground">
+      <div className="mb-4 max-w-prose space-y-1 text-sm text-muted-foreground">
         <p>{t("dataSources.body")}</p>
         <p>{t("dataSources.secretsPlanned")}</p>
       </div>
@@ -104,7 +109,7 @@ export function DataSourcesPage() {
           </div>
         </Alert>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2" data-testid="plugin-catalogue">
+        <div className="grid gap-3 lg:grid-cols-2" data-testid="plugin-catalogue">
           <Section
             id="plugin-sources"
             title={t("dataSources.sources")}
@@ -112,7 +117,7 @@ export function DataSourcesPage() {
             icon={<Database className="size-4" />}
             empty={q.data.sources.length === 0 ? t("dataSources.noSources") : null}
           >
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-2">
               {q.data.sources.map((s: SourcePlugin) => (
                 <PluginItem
                   key={s.id}
@@ -130,7 +135,7 @@ export function DataSourcesPage() {
             icon={<FileCode2 className="size-4" />}
             empty={q.data.formats.length === 0 ? t("dataSources.noFormats") : null}
           >
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-2">
               {q.data.formats.map((f: FormatPlugin) => (
                 <PluginItem
                   key={f.id}

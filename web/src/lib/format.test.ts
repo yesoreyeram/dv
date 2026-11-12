@@ -3,6 +3,7 @@ import {
   formatCell,
   formatJSON,
   formatNumber,
+  formatRelativeTime,
   formatTime,
   parseRowLimit,
   sortedRowOrder,
@@ -89,5 +90,31 @@ describe("row limit (FR-018 AC2)", () => {
     ["abc", null],
   ])("parses %j as %j", (raw, want) => {
     expect(parseRowLimit(raw)).toBe(want);
+  });
+});
+
+describe("relative time (FR-018 AC9)", () => {
+  const now = Date.UTC(2026, 10, 11, 12);
+  const en = { locale: "en-US" };
+
+  it.each([
+    [0, "now"],
+    [59_000, "now"],
+    [60_000, "1 minute ago"],
+    [59 * 60_000, "59 minutes ago"],
+    [60 * 60_000, "1 hour ago"],
+    [23 * 3_600_000, "23 hours ago"],
+    [24 * 3_600_000, "yesterday"],
+    [3 * 86_400_000, "3 days ago"],
+  ])("formats %d ms ago as %s", (ago, want) => {
+    expect(formatRelativeTime(now - ago, now, en)).toBe(want);
+  });
+
+  it("never reports the future for a clock that moved back", () => {
+    expect(formatRelativeTime(now + 5 * 60_000, now, en)).toBe("now");
+  });
+
+  it("uses the locale", () => {
+    expect(formatRelativeTime(now - 2 * 3_600_000, now, { locale: "de-DE" })).toBe("vor 2 Stunden");
   });
 });
