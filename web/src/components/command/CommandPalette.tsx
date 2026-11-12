@@ -249,7 +249,7 @@ export function CommandPalette({
                       <span className="truncate text-xs text-muted-foreground">{cmd.detail}</span>
                     ) : null}
                     {cmd.shortcut ? (
-                      <span className="ms-auto flex shrink-0 gap-1 ps-2">
+                      <span aria-hidden="true" className="ms-auto flex shrink-0 gap-1 ps-2">
                         {cmd.shortcut.map((k) => (
                           <Kbd key={k}>{k}</Kbd>
                         ))}
