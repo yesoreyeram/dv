@@ -13,3 +13,11 @@ Milestones are delivered as a sequence of small PRs. Each PR traces to FR/NFR ID
 | **M5** API sources | REST/JSON and GraphQL sources behind the SSRF guard | FR-040, FR-041, NFR-SEC-005 | Planned |
 | **M6** Dashboards | Dashboard CRUD with versioned JSON schema, grid layout, variables, time range | FR-050…FR-052 | Planned |
 | **M7** Breadth & operations | NDJSON/XML/YAML/Parquet/Excel, S3-compatible storage, caching, audit-log UI, OpenTelemetry traces/metrics, SBOM | FR-060…FR-064, NFR-OBS-004, NFR-AUD-003 | Planned |
+
+## Production gate
+
+`docs/PRODUCTION_READINESS.md` audits what stands between the current build and a
+network deployment. In short: M3 (storage, identity, RBAC, secrets, audit log) plus TLS
+and proxy trust (B-079, B-021) and a release pipeline (B-078) must land before dv serves
+users beyond one operator on loopback.
+
