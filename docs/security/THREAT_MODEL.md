@@ -200,6 +200,19 @@ can be measured.
 | I | The view parameter in the URL leaks data | `view` is an enum (`timeseries` or absent); unknown values fall back to the table | `ExplorePage.test.tsx` |
 | R/T | Colour-only encoding lets a reader confuse two series (misreading as a data-integrity issue) | Legend names, dash patterns from slot 5 on, validated palette, table alternative (NFR-A11Y-004) | Review, palette validator output in the PR |
 
+## F-14 Workspace frame: command palette, shortcuts, preferences and query history (FR-005 AC8–AC13, FR-008, FR-018 AC8–AC9, NFR-SEC-019)
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T | `localStorage` is writable by anything that ever ran on the origin (an extension, an older build, a user in dev tools); a crafted `dv.explore.history` or preference value breaks rendering or smuggles markup | Storage is treated as untrusted input: fixed keys, enum/number/shape validation with length caps, a 64 KiB document limit and a 20-entry cap; invalid data is dropped, never repaired by guessing; values are rendered as React text only (NFR-SEC-019 AC2/AC3) | `prefs.test.ts`, `history.test.ts` (hostile documents) |
+| I | Query history on a shared browser profile shows another person which files were queried | History holds only what the Explore URL already holds (data-source uid, path, format, limits), never results or credentials; it is per browser profile, capped at 20 and has a "Clear history" action (FR-018 AC9, NFR-SEC-019 AC4). Per-user server-side history waits for accounts (M3) | `history.test.ts`, `workspace.feature` |
+| S/T | A palette entry or stored history entry navigates somewhere unexpected (open redirect) or runs a query the user did not ask for | Commands navigate with the router to a fixed set of in-app paths; history and data-source entries build `/explore?…` from validated fields with `URLSearchParams`; opening one only fills the form (FR-008 AC5, FR-018 AC6) | `commands.test.ts`, `ExplorePage.test.tsx` |
+| T | Data-source names shown in the palette carry markup | Rendered as text; the filter is a plain substring match (no regular expression built from user or server text, so no ReDoS) | `commands.test.ts`, `CommandPalette.test.tsx` |
+| D | A global key listener or an unbounded palette list slows typing | One `keydown` listener for the app; the palette query is capped at 100 characters; the list is bounded by pages (5) + provisioned sources + 20 history entries and renders only while open | Review, `useHotkeys.test.tsx` |
+| E | A single-key shortcut fires while the user types in a field or uses speech input, triggering an action they did not intend (WCAG 2.1.4) | Character-only shortcuts are ignored in editable fields, with modifiers held and while a dialog is open, and can be switched off (FR-008 AC7/AC8) | `useHotkeys.test.tsx`, `workspace.feature` |
+| I | An error boundary prints exception text that contains data or internals | The fallback shows fixed copy only; details go to the local console (NFR-AVAIL-004 AC2/AC3) | `ErrorBoundary.test.tsx` |
+| T | Resizing sets layout through inline styles, tempting a later change to loosen the CSP (`style-src 'unsafe-inline'`) | The splitter writes one CSS custom property through the CSSOM (`element.style.setProperty`), which `style-src 'self'` allows; the CSP scenarios run against Explore and the open palette | `csp.feature` |
+
 ## Planned features (threats to model at implementation time)
 
 - **F-04 AuthN/RBAC (M3):** credential stuffing, session fixation, CSRF, privilege escalation, IDOR → Argon2id, rotating session IDs, SameSite=strict cookies + CSRF tokens, server-side RBAC, object-level checks.

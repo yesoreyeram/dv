@@ -27,6 +27,18 @@ Feature: Content Security Policy in the browser
     And I click the navigation link "API reference"
     Then no Content Security Policy violations were reported
 
+  @FR-008 @FR-018
+  Scenario: The workspace frame, palette and splitter cause no CSP violations
+    Given I am recording Content Security Policy violations
+    And I open the app at "/explore" with color scheme "dark"
+    When I press "Control+k"
+    And I press "Escape"
+    And I click the button "Collapse sidebar"
+    And I focus the splitter
+    And I press "ArrowRight"
+    And I drag the splitter 40 pixels to the right
+    Then no Content Security Policy violations were reported
+
   Scenario: Injected inline script is blocked and reported
     Given I am recording Content Security Policy violations
     And I open the app at "/"

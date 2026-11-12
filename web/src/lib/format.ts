@@ -151,3 +151,19 @@ export function parseRowLimit(raw: string): number | undefined | null {
   const n = Number(s);
   return n >= 1 && n <= MAX_ROW_LIMIT ? n : null;
 }
+
+const RELATIVE_UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
+  ["day", 86_400_000],
+  ["hour", 3_600_000],
+  ["minute", 60_000],
+];
+
+/** "5 minutes ago", "yesterday", "now": how long before `now` something happened. */
+export function formatRelativeTime(at: number, now: number, opts: FormatOptions = {}): string {
+  const rtf = new Intl.RelativeTimeFormat(opts.locale, { numeric: "auto" });
+  const elapsed = Math.max(0, now - at);
+  for (const [unit, ms] of RELATIVE_UNITS) {
+    if (elapsed >= ms) return rtf.format(-Math.floor(elapsed / ms), unit);
+  }
+  return rtf.format(0, "second");
+}

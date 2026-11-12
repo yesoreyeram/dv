@@ -81,9 +81,26 @@ export const versionQuery = queryOptions({
   staleTime: 5 * 60_000,
 });
 
+/**
+ * Normalises a `/readyz` body. The UI must not break on a body it does not expect (a proxy
+ * error page that happens to be JSON, an older server): anything but `status: "ready"`
+ * reads as not ready, and only `pass`/`fail` checks are kept.
+ */
+export function readReadiness(body: unknown): Readiness {
+  const o = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const checks: Readiness["checks"] = {};
+  if (typeof o.checks === "object" && o.checks !== null && !Array.isArray(o.checks)) {
+    for (const [name, result] of Object.entries(o.checks as Record<string, unknown>)) {
+      if (result === "pass" || result === "fail") checks[name] = result;
+    }
+  }
+  return { status: o.status === "ready" ? "ready" : "not_ready", checks };
+}
+
 export const readinessQuery = queryOptions({
   queryKey: ["system", "readiness"],
-  queryFn: ({ signal }) => fetchJSON<Readiness>("/readyz", { signal, acceptStatuses: [503] }),
+  queryFn: async ({ signal }) =>
+    readReadiness(await fetchJSON<unknown>("/readyz", { signal, acceptStatuses: [503] })),
   refetchInterval: 15_000,
 });
 

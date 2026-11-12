@@ -24,6 +24,7 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-005 | Application shell (navigation, layout, theming) | M | M0/M1 | In progress |
 | FR-006 | System status view in the UI | S | M0/M1 | In progress |
 | FR-007 | API reference view in the UI | C | M0/M1 | In progress |
+| FR-008 | Command palette and keyboard shortcuts | S | M1 | In progress |
 | FR-010 | Common data-frame model | M | M2 | In progress |
 | FR-015 | Plugin registry and plugin catalogue | M | M2 | In progress |
 | FR-011 | CSV / TSV file source | M | M2 | In progress |
@@ -108,6 +109,32 @@ A React single-page application provides the product frame.
   fades are decorative (`aria-hidden`) and give way to a solid edge line in forced-colors
   mode. Market baseline: the mobile tab bars of Grafana, Datadog and New Relic keep the
   selected tab visible and fade the clipped edge (B-050).
+- AC8 (workspace frame): a top bar spans the window and stays in view while the page
+  scrolls. It holds the product mark (a link to Home), a breadcrumb naming the current
+  page (`nav` labelled "Breadcrumb", current item `aria-current="page"`), the command
+  palette trigger (FR-008), the shortcuts help button and the theme toggle. From the `md`
+  breakpoint the navigation is a sidebar under the top bar that fills the window height
+  and keeps its background for the whole page height on pages taller than the window
+  (B-068).
+- AC9 (collapsible sidebar): from `md` up a top-bar button collapses the sidebar to an
+  icon rail and expands it again (`aria-expanded`, `aria-controls`; Ctrl/⌘+B does the
+  same). Collapsed links keep their accessible names and show the name as a tooltip. The
+  choice persists per browser (`dv.sidebar`); anything but `collapsed` reads as expanded.
+  Below `md` the setting has no effect (AC7 row).
+- AC10 (server indicator): the sidebar foot shows whether the server is ready, not ready
+  or unreachable (from `/readyz`, the same cached query as FR-006) and the server version.
+  State is carried by text and an icon shape, not by colour alone.
+- AC11 (density): the frame is a dense workspace in the manner of Grafana, Datadog and
+  Linear: 13 px UI text, 32 px controls, 6 px radii, full-width pages. Dense controls
+  still meet the 24 × 24 CSS px target size (WCAG 2.2 SC 2.5.8) and the text contrast of
+  NFR-A11Y-001 in both themes.
+- AC12 (theme preference): the theme follows the operating system until the user picks
+  one; "Use system theme" (FR-008) removes the stored choice, and while no choice is
+  stored the theme tracks OS changes without a reload.
+- AC13 (failure containment): an error thrown while a page renders is caught at the page
+  boundary. The frame (top bar, navigation) stays usable and the page area shows an alert
+  with "Try again" and "Reload" actions; no stack trace or error text from the exception
+  is shown to the user. Navigating to another page clears the error (NFR-AVAIL-004).
 
 ### FR-006 — System status view (S)
 The Home page shows server liveness/readiness and build version, fetched via TanStack Query.
@@ -119,6 +146,39 @@ The Home page shows server liveness/readiness and build version, fetched via Tan
 The UI lists endpoints from `/api/openapi.json` (method, path, summary).
 - AC1: every path/method in the spec is rendered.
 - AC2: rendering uses text only (no HTML injection from the spec).
+
+### FR-008 — Command palette and keyboard shortcuts (S)
+One keyboard-first surface reaches every page and frequent action. Market baseline: the
+command palettes of Grafana (Ctrl/⌘+K), Linear, GitHub and VS Code, and Grafana's `g h` /
+`g e` navigation sequences.
+- AC1: Ctrl/⌘+K anywhere (also inside form fields), `/` outside editable fields, or the
+  top-bar "Search or jump to…" button opens the palette; the same chord or Escape closes
+  it. Focus returns to the element that had it before the palette opened.
+- AC2: the palette is a modal dialog (`role="dialog"`, `aria-modal`, labelled) with a
+  search field following the WAI-ARIA combobox pattern (`role="combobox"`,
+  `aria-controls`, `aria-activedescendant`) over a grouped `listbox`. ↑/↓ move the active
+  option and wrap, Home/End jump to the first/last, Enter runs it, Tab stays inside the
+  dialog. The page behind it is inert.
+- AC3: commands, in groups: **Go to** (the five pages of FR-005 AC1); **Explore** (one
+  entry per provisioned data source, FR-017, when the query API is on); **Recent queries**
+  (FR-018 AC9); **Preferences** (switch theme, use system theme, collapse/expand sidebar);
+  **Help** (keyboard shortcuts). Each shows its shortcut when it has one.
+- AC4: typing filters by every whitespace-separated term (case-insensitive) against the
+  command title, group and keywords; a title prefix ranks above a word start, which ranks
+  above any other match. No match shows "No results for …" as text. The query is capped at
+  100 characters and is never sent to the server.
+- AC5: running a command closes the palette. Navigation commands only target in-app
+  routes; a recent query or data-source entry opens Explore with the form filled and does
+  not run the query (FR-018 AC6).
+- AC6: `?` outside editable fields, the top-bar help button or the palette opens a
+  "Keyboard shortcuts" dialog that lists every shortcut.
+- AC7: `g` followed within 1.5 s by `h`, `e`, `d`, `s` or `a` goes to Home, Explore,
+  Dashboards, Data sources or API reference. Single-key shortcuts (`/`, `?`, `g …`) never
+  fire while focus is in an input, select, textarea or contenteditable element, while a
+  modifier key is held, or while a dialog is open.
+- AC8 (WCAG 2.1.4 Character Key Shortcuts): a "Single-key shortcuts" switch in the
+  shortcuts dialog turns `/`, `?` and the `g` sequences off; the choice persists per
+  browser (`dv.hotkeys`). Shortcuts with a modifier stay active.
 
 ### FR-010 — Common data-frame model (M)
 Every source normalises its result into `internal/frame` (ADR-0003) so panels render data
@@ -472,6 +532,25 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
 - AC6: the data source, path, format and row limit are kept in the URL query string
   (`?ds=&path=&format=&maxRows=`) and restored on load; an unknown `ds` falls back to the
   first data source. The query only runs when the user presses Run.
+- AC8 (resizable workspace): when the page area is at least 768 px wide the query editor and the result sit
+  side by side, divided by a splitter following the WAI-ARIA window-splitter pattern
+  (`role="separator"`, focusable, `aria-valuenow/min/max` in CSS px, `aria-controls` the
+  editor). Dragging it, or ←/→ (16 px steps), Home and End while it has focus, resizes the
+  editor between 280 and 640 px; Enter or a double click restores the default 360 px. The
+  width persists per browser (`dv.explore.split`); a stored value that is not a finite
+  number is ignored and one outside the range is clamped. The result always keeps at least
+  320 px, whatever width is stored. In a narrower page area the panes stack and
+  the splitter is not shown.
+- AC9 (query history, B-064): each run records its data source, path, format, row limit
+  and JSON options (the same fields as the URL, AC6; never results) at the head of a
+  per-browser list (`dv.explore.history`), newest first, without duplicates, capped at 20
+  entries. A "History" button (`aria-expanded`) opens the list; choosing an entry fills
+  the form and does not run the query; "Clear history" empties it. Entries read from
+  storage are validated field by field (types, lengths, known keys only) and invalid ones
+  are dropped.
+- AC10 (result states): before the first run the result pane shows an empty state that
+  names the Run action and its shortcut; while a query runs it shows a skeleton and a
+  `role="status"` text; cancelled and failed runs keep their text or alert (AC3, AC5).
 
 ### FR-020 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
