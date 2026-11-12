@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { t } from "@/i18n/messages";
-import { ApiError, fetchJSON, listEndpoints } from "./api";
+import { ApiError, fetchJSON, listEndpoints, readReadiness } from "./api";
 import { createQueryClient } from "./queryClient";
-import { applyTheme, getInitialTheme, persistTheme, THEME_STORAGE_KEY } from "./theme";
+import {
+  applyTheme,
+  getInitialTheme,
+  getThemePreference,
+  persistTheme,
+  setThemePreference,
+  subscribeTheme,
+  THEME_STORAGE_KEY,
+} from "./theme";
 import { cn } from "./utils";
 
 describe("cn", () => {
@@ -49,6 +57,36 @@ describe("fetchJSON", () => {
   });
 });
 
+describe("readReadiness", () => {
+  it("keeps a well-formed body", () => {
+    expect(readReadiness({ status: "ready", checks: { db: "pass", cache: "fail" } })).toEqual({
+      status: "ready",
+      checks: { db: "pass", cache: "fail" },
+    });
+  });
+
+  it.each([
+    [{}],
+    [null],
+    ["ready"],
+    [[]],
+    [{ status: "READY" }],
+    [{ status: "ready", checks: null }],
+    [{ status: "ready", checks: ["pass"] }],
+  ])("never throws on %j", (body) => {
+    const r = readReadiness(body);
+    expect(["ready", "not_ready"]).toContain(r.status);
+    expect(r.checks).toEqual({});
+  });
+
+  it("reads anything but ready as not ready and drops unknown check results", () => {
+    expect(readReadiness({ status: "ok", checks: { a: "pass", b: "maybe", c: 1 } })).toEqual({
+      status: "not_ready",
+      checks: { a: "pass" },
+    });
+  });
+});
+
 describe("listEndpoints", () => {
   it("handles operations without summaries", () => {
     expect(
@@ -86,6 +124,34 @@ describe("theme", () => {
   it("applies the theme to the root element", () => {
     applyTheme("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("stores a choice, and forgets it for the system preference (FR-005 AC12)", () => {
+    expect(getThemePreference()).toBe("system");
+    setThemePreference("dark");
+    expect(getThemePreference()).toBe("dark");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    setThemePreference("system");
+    expect(getThemePreference()).toBe("system");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(document.documentElement.dataset.theme).toBe("light");
+    window.localStorage.setItem(THEME_STORAGE_KEY, "system");
+    expect(getThemePreference()).toBe("system");
+  });
+
+  it("notifies on preference and OS colour-scheme changes, until unsubscribed", () => {
+    const mq = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    vi.spyOn(window, "matchMedia").mockReturnValue(mq as unknown as MediaQueryList);
+    const cb = vi.fn();
+    const unsubscribe = subscribeTheme(cb);
+    expect(mq.addEventListener).toHaveBeenCalledWith("change", cb);
+    persistTheme("dark");
+    expect(cb).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    expect(mq.removeEventListener).toHaveBeenCalledWith("change", cb);
+    persistTheme("light");
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 });
 

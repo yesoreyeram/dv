@@ -1,10 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { t } from "@/i18n/messages";
 import { listEndpoints, openapiQuery } from "@/lib/api";
+
+/** Read-only methods read as neutral, writes stand out; the method text carries the meaning. */
+const METHOD_VARIANT: Record<string, BadgeProps["variant"]> = {
+  GET: "default",
+  HEAD: "default",
+  POST: "success",
+  PUT: "success",
+  PATCH: "success",
+  DELETE: "danger",
+};
 
 export function ApiReferencePage() {
   const q = useQuery(openapiQuery);
@@ -31,13 +41,13 @@ export function ApiReferencePage() {
             <caption className="sr-only">{t("api.title")}</caption>
             <thead className="border-b bg-muted/60 text-start text-xs tracking-wide text-muted-foreground uppercase">
               <tr>
-                <th scope="col" className="px-5 py-3 text-start font-medium">
+                <th scope="col" className="px-4 py-2 text-start font-medium">
                   {t("api.method")}
                 </th>
-                <th scope="col" className="px-5 py-3 text-start font-medium">
+                <th scope="col" className="px-4 py-2 text-start font-medium">
                   {t("api.path")}
                 </th>
-                <th scope="col" className="px-5 py-3 text-start font-medium">
+                <th scope="col" className="px-4 py-2 text-start font-medium">
                   {t("api.summary")}
                 </th>
               </tr>
@@ -46,14 +56,16 @@ export function ApiReferencePage() {
               {listEndpoints(q.data).map((ep) => (
                 <tr
                   key={`${ep.method} ${ep.path}`}
-                  className="border-b last:border-b-0"
+                  className="border-b last:border-b-0 hover:bg-muted/40"
                   data-testid="endpoint"
                 >
-                  <td className="px-5 py-3">
-                    <Badge className="font-mono">{ep.method}</Badge>
+                  <td className="px-4 py-2">
+                    <Badge variant={METHOD_VARIANT[ep.method] ?? "outline"} className="font-mono">
+                      {ep.method}
+                    </Badge>
                   </td>
-                  <td className="px-5 py-3 font-mono">{ep.path}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{ep.summary}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{ep.path}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{ep.summary}</td>
                 </tr>
               ))}
             </tbody>
