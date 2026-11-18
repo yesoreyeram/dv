@@ -364,3 +364,11 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - Audit: `docs/PRODUCTION_READINESS.md`; new backlog items B-076…B-084.
 - Next: B-022 storage layer, then B-023 users and sessions (the production gate), B-074 scheduled scan.
 
+
+## 2026-11-18 ~20:05–20:40 UTC — PR #23 triage: Codex P2 fixed, rebased onto `main`; no new feature PR
+- Triage (fresh fetch): open PRs #23 (ours, label `hold`, CI green but one unresolved Codex P2) and #26 (Dependabot, TypeScript 6.0.3 → 7.0.2, red: `typescript-eslint does not support TS 7.0` in `e2e lint`). No open issues. Because PRs are open, no new feature PR this run (owner rule: none open before opening one).
+- #23: rebased onto `main` (73aaa0b: react-router 8.5.1, @eslint/js 10, lucide-react, web-dev group), no conflicts.
+- Codex P2 (prefs.ts): with storage blocked or full, writes were dropped, so the sidebar toggle, the single-key shortcut switch and theme selection did nothing. Requirements first (separate commit): NFR-SEC-019 AC5 + `workspace.feature` scenario "Preferences still apply when browser storage is blocked" (fails on the old code, checked against a rebuilt SPA). Fix: a refused write is kept in an in-memory copy for the page's life; a later successful write or a `storage` event from another tab replaces it.
+- Evidence: Vitest 320/320 (5 new), ESLint/tsc/Prettier clean (web + e2e), UI BDD 68/68, `go test -race` all packages ok except `test/bdd` (godog cannot be downloaded here: module proxy 403; no Go code changed, CI runs it), `pnpm audit` clean, `check-toolchain.sh` consistent. Screenshot `docs/screenshots/feat-pro-workspace-ui/17-storage-blocked-prefs-dark.png` (storage blocked, sidebar collapsed, dark theme applied, 0 console errors).
+- #26 left for the owner; captured as B-085 (pin TS 6 + ignore the 7.x major until typescript-eslint supports it).
+- Next: owner review of #23 (remove `hold`), then B-085, then B-022 storage layer.

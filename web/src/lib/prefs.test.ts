@@ -69,6 +69,67 @@ describe("preferences in browser storage (NFR-SEC-019)", () => {
     expect(getSplit()).toBe(SPLIT.default);
   });
 
+  it("keeps a change in memory when storage refuses it (NFR-SEC-019 AC5)", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    setSidebar("collapsed");
+    expect(getSidebar()).toBe("collapsed");
+    setSingleKeyShortcuts(false);
+    expect(getSingleKeyShortcuts()).toBe(false);
+    setSplit(500);
+    expect(getSplit()).toBe(500);
+    writeRaw("k", null);
+    expect(readRaw("k")).toBeNull();
+  });
+
+  it("prefers the in-memory copy when only writes fail, e.g. quota (NFR-SEC-019 AC5)", () => {
+    window.localStorage.setItem(PREF_KEYS.sidebar, "expanded");
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    setSidebar("collapsed");
+    expect(getSidebar()).toBe("collapsed");
+    // Once storage accepts writes again, it is the source of truth.
+    setItem.mockRestore();
+    setSidebar("expanded");
+    expect(window.localStorage.getItem(PREF_KEYS.sidebar)).toBe("expanded");
+    window.localStorage.setItem(PREF_KEYS.sidebar, "collapsed");
+    expect(getSidebar()).toBe("collapsed");
+  });
+
+  it("a storage event from another tab replaces the in-memory copy (NFR-SEC-019 AC5)", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    setSidebar("collapsed");
+    setItem.mockRestore();
+    window.localStorage.setItem(PREF_KEYS.sidebar, "expanded");
+    window.dispatchEvent(new StorageEvent("storage", { key: PREF_KEYS.sidebar }));
+    expect(getSidebar()).toBe("expanded");
+  });
+
+  it("useSidebar toggles even when storage is blocked (NFR-SEC-019 AC5)", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    const { result } = renderHook(() => useSidebar());
+    act(() => {
+      result.current.toggle();
+    });
+    expect(result.current.collapsed).toBe(true);
+    act(() => {
+      result.current.toggle();
+    });
+    expect(result.current.collapsed).toBe(false);
+  });
+
   it("stores the sidebar state and treats anything else as expanded (FR-005 AC9)", () => {
     expect(getSidebar()).toBe("expanded");
     setSidebar("collapsed");

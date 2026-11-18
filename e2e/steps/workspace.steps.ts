@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { Then, When } from "./fixtures";
+import { Given, Then, When } from "./fixtures";
 
 const palette = (page: Page) => page.getByRole("dialog", { name: "Command palette" });
 const sidebar = (page: Page) => page.getByTestId("sidebar");
@@ -145,4 +145,16 @@ Then("the query history is empty", async ({ page }) => {
   await expect(page.getByTestId("history-empty")).toBeVisible();
   await expect(page.getByTestId("history-entry")).toHaveCount(0);
   expect(await page.evaluate(() => window.localStorage.getItem("dv.explore.history"))).toBeNull();
+});
+
+Given("browser storage refuses every read and write", async ({ page }) => {
+  // Like a private window with site data blocked (NFR-SEC-019 AC5).
+  await page.addInitScript(() => {
+    const deny = () => {
+      throw new DOMException("storage blocked", "SecurityError");
+    };
+    Storage.prototype.getItem = deny;
+    Storage.prototype.setItem = deny;
+    Storage.prototype.removeItem = deny;
+  });
 });
