@@ -20,7 +20,13 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import {
+  NavigationType,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useSearchParams,
+} from "react-router";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { TablePanel } from "@/components/panels/TablePanel";
 import { TimeSeriesPanel } from "@/components/panels/TimeSeriesPanel";
@@ -760,11 +766,17 @@ function Result({
 /** Explore: ad-hoc query against a provisioned data source (FR-018). */
 export function ExplorePage() {
   const { data, isPending, isError, refetch } = useQuery(dataSourcesQuery);
-  // A new restore token (history entry, command palette) remounts the form so it re-reads
-  // the URL. Running a query replaces the URL without a token and keeps the form (AC6).
-  const restore = (useLocation().state as { restore?: unknown } | null)?.restore;
-  const [formKey, setFormKey] = useState(typeof restore === "string" ? restore : "initial");
-  if (typeof restore === "string" && restore !== formKey) setFormKey(restore);
+  // The form is remounted, so it re-reads the URL, when a new restore token arrives (history
+  // entry, command palette) or the browser moves to another history entry (Back/Forward).
+  // Running a query replaces the URL (REPLACE, no token) and keeps the form as typed (AC6).
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const restore = (location.state as { restore?: unknown } | null)?.restore;
+  let wantedKey: string | null = null;
+  if (typeof restore === "string") wantedKey = restore;
+  else if (navigationType === NavigationType.Pop) wantedKey = `pop:${location.key}`;
+  const [formKey, setFormKey] = useState(wantedKey ?? "initial");
+  if (wantedKey !== null && wantedKey !== formKey) setFormKey(wantedKey);
   let body: ReactNode;
   if (isPending) {
     body = (
