@@ -158,3 +158,11 @@ Given("browser storage refuses every read and write", async ({ page }) => {
     Storage.prototype.removeItem = deny;
   });
 });
+
+When("I go back in the browser", async ({ page }) => {
+  await page.goBack();
+});
+
+When("I go forward in the browser", async ({ page }) => {
+  await page.goForward();
+});

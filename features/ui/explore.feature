@@ -152,6 +152,23 @@ Feature: Explore data from a provisioned source
     And I clear the query history
     Then the query history is empty
 
+  @FR-018
+  Scenario: Browser Back after choosing a history entry restores the earlier query
+    Given I open the app at "/explore?ds=samples&path=sales.csv"
+    When I press Run
+    Then the result table has 6 rows
+    When I enter the path "hosts.tsv"
+    And I press Run
+    Then the result table has 3 rows
+    When I reload the page
+    And I open the query history
+    And I choose the history entry "sales.csv"
+    Then the path field contains "sales.csv"
+    When I go back in the browser
+    Then the path field contains "hosts.tsv"
+    When I go forward in the browser
+    Then the path field contains "sales.csv"
+
   @FR-018 @FR-008
   Scenario: A recent query is offered in the command palette
     Given I open the app at "/explore"
