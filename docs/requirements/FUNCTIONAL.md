@@ -548,7 +548,8 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
   and JSON options (the same fields as the URL, AC6; never results) at the head of a
   per-browser list (`dv.explore.history`), newest first, without duplicates, capped at 20
   entries. A "History" button (`aria-expanded`) opens the list; choosing an entry fills
-  the form and does not run the query; "Clear history" empties it. Entries read from
+  the form and does not run the query, every time, also after the page was reloaded
+  on an entry opened from history; "Clear history" empties it. Entries read from
   storage are validated field by field (types, lengths, known keys only) and invalid ones
   are dropped.
 - AC10 (result states): before the first run the result pane shows an empty state that
