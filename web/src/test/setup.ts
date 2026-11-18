@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+import { resetPrefsMemory } from "@/lib/prefs";
 
 afterEach(() => {
   cleanup();
@@ -8,6 +9,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute("data-theme");
   window.localStorage.clear();
+  resetPrefsMemory();
 });
 
 if (!(window as Partial<Window>).matchMedia) {
