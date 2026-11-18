@@ -531,7 +531,10 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
   or not a valid frame shows a generic decode error.
 - AC6: the data source, path, format and row limit are kept in the URL query string
   (`?ds=&path=&format=&maxRows=`) and restored on load; an unknown `ds` falls back to the
-  first data source. The query only runs when the user presses Run.
+  first data source. The query only runs when the user presses Run. Browser Back/Forward to
+  another Explore entry refills the form from that entry's URL (the form never shows a query
+  other than the one in the address bar), while the URL updates made by running a query keep
+  the form as typed.
 - AC8 (resizable workspace): when the page area is at least 768 px wide the query editor and the result sit
   side by side, divided by a splitter following the WAI-ARIA window-splitter pattern
   (`role="separator"`, focusable, `aria-valuenow/min/max` in CSS px, `aria-controls` the
