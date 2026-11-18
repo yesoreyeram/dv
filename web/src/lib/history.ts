@@ -127,12 +127,15 @@ export function useQueryHistory(): HistoryEntry[] {
 }
 
 let restoreSeq = 0;
+// Differs per page load, so tokens from before a reload (kept in `history.state`) never repeat.
+const restoreEpoch = Math.random().toString(36).slice(2, 10);
 
 /**
  * A fresh token for `location.state.restore`: Explore re-reads the URL into its form when
  * it sees a new one, so opening a history entry works while Explore is already mounted.
+ * It is not a secret; it only has to differ from tokens of earlier page loads.
  */
 export function restoreToken(): string {
   restoreSeq += 1;
-  return `r${String(restoreSeq)}`;
+  return `r${restoreEpoch}-${String(restoreSeq)}`;
 }

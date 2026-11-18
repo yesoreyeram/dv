@@ -773,7 +773,9 @@ export function ExplorePage() {
   const navigationType = useNavigationType();
   const restore = (location.state as { restore?: unknown } | null)?.restore;
   let wantedKey: string | null = null;
-  if (typeof restore === "string") wantedKey = restore;
+  // Keyed by the history entry, not the token alone: a token survives a reload in
+  // `history.state`, so a token minted after the reload could repeat it.
+  if (typeof restore === "string") wantedKey = `restore:${restore}:${location.key}`;
   else if (navigationType === NavigationType.Pop) wantedKey = `pop:${location.key}`;
   const [formKey, setFormKey] = useState(wantedKey ?? "initial");
   if (wantedKey !== null && wantedKey !== formKey) setFormKey(wantedKey);
