@@ -85,6 +85,23 @@ Feature: Workspace frame, command palette and keyboard shortcuts
     When I press "Control+b"
     Then the sidebar is expanded
 
+  @NFR-SEC-019
+  Scenario: Preferences still apply when browser storage is blocked
+    Given browser storage refuses every read and write
+    And I open the app at "/" with color scheme "light"
+    When I click the button "Collapse sidebar"
+    Then the sidebar is collapsed
+    When I press "Control+k"
+    And I type "dark theme" in the command palette
+    And I press "Enter"
+    Then the document uses the "dark" theme
+    When I press "?"
+    And I switch off "Single-key shortcuts"
+    And I press "Escape"
+    And I press "g"
+    And I press "e"
+    Then the page heading is "Home"
+
   Scenario: Go to a page with a key sequence
     Given I open the app at "/"
     When I press "g"
