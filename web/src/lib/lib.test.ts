@@ -121,6 +121,24 @@ describe("theme", () => {
     }).not.toThrow();
   });
 
+  it("applies the requested theme even when storage refuses the write (NFR-SEC-019 AC5)", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    setThemePreference("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(getThemePreference()).toBe("dark");
+    setThemePreference("system");
+    expect(getThemePreference()).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
   it("applies the theme to the root element", () => {
     applyTheme("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");

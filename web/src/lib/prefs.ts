@@ -15,7 +15,15 @@ export const PREF_KEYS = {
   history: "dv.explore.history",
 } as const;
 
+/**
+ * Values this page wrote but storage refused (blocked, quota exhausted), so the change
+ * still applies until the page goes away (NFR-SEC-019 AC5). `null` records a removal.
+ * A later successful write or a `storage` event for the key replaces the entry.
+ */
+const memory = new Map<string, string | null>();
+
 export function readRaw(key: string): string | null {
+  if (memory.has(key)) return memory.get(key) ?? null;
   try {
     return window.localStorage.getItem(key);
   } catch {
@@ -23,15 +31,22 @@ export function readRaw(key: string): string | null {
   }
 }
 
-/** Writes (or, with `null`, removes) a value and tells subscribers; failures are ignored. */
+/** Writes (or, with `null`, removes) a value and tells subscribers; never throws. */
 export function writeRaw(key: string, value: string | null): void {
   try {
     if (value === null) window.localStorage.removeItem(key);
     else window.localStorage.setItem(key, value);
+    memory.delete(key);
   } catch {
-    // Storage may be unavailable; the preference still applies for this page.
+    // Storage is unavailable or full: keep the change for this page instead.
+    memory.set(key, value);
   }
   notifyPrefs();
+}
+
+/** Forgets every in-memory copy (tests). */
+export function resetPrefsMemory(): void {
+  memory.clear();
 }
 
 /** Returns the stored value only when it is exactly one of `allowed`. */
@@ -63,6 +78,16 @@ export function subscribePrefs(cb: () => void): () => void {
     listeners.delete(cb);
     window.removeEventListener("storage", cb);
   };
+}
+
+// Another tab wrote to storage, so storage works there and its value wins over a local
+// copy; a `null` key means that tab cleared storage. Registered once, at import, so it
+// runs before any subscriber re-reads.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e: StorageEvent) => {
+    if (e.key === null) memory.clear();
+    else memory.delete(e.key);
+  });
 }
 
 /* ---------- sidebar (FR-005 AC9) ---------- */
