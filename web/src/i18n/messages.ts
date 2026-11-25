@@ -139,6 +139,20 @@ export const en = {
   "explore.stats":
     "{rows} rows · {fields} fields · query time {queryTime} · total request time {total} · {query}",
   "explore.ms": "{n} ms",
+  "explore.statsPages": "{n} upstream pages",
+  "explore.method": "Method",
+  "explore.httpPathHint":
+    "Appended to the connection's base URL, for example /repos/acme/web/issues.",
+  "explore.httpPathInvalid": "Start the path with a single /.",
+  "explore.rowsSelector": "Rows (jq)",
+  "explore.rowsSelectorHint":
+    "Optional. A jq expression; each output is one row, for example .items[] | {id, name}.",
+  "explore.rowsSelectorInvalid": "The selector is longer than 4096 characters.",
+  "explore.httpOptions": "Parameters, pagination and columns (JSON)",
+  "explore.httpOptionsHint":
+    'Optional. For example {"params": [{"name": "per_page", "value": "50"}], "pagination": {"type": "linkHeader"}}.',
+  "explore.httpOptionsInvalid":
+    "Enter a JSON object with only params, headers, body, pagination, columns, flatten or fieldTypes.",
   "explore.unknownDuration": "—",
   "explore.frames": "Frames",
   "explore.noFrames": "The query returned no frames.",
@@ -171,7 +185,7 @@ export const en = {
   "dashboards.body": "Compose panels into dashboards with variables and a shared time range.",
   "dataSources.title": "Data sources",
   "dataSources.body":
-    "These are the connector types compiled into this server. SQL databases and HTTP APIs are on the roadmap. Stored credentials are not supported yet.",
+    "These are the connector types compiled into this server. The HTTP API connector reads credentials from environment variables or files named in the server config. SQL databases and vendor presets are on the roadmap, and credentials cannot be stored through the UI yet.",
   "dataSources.secretsPlanned": "Encrypted secret storage is planned for milestone M3.",
   "dataSources.subtitle": "Plugin types compiled into this server.",
   "dataSources.sources": "Data source types",

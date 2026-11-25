@@ -25,9 +25,11 @@ type Meta struct {
 	// Source is the plugin ID that produced the frame.
 	Source string `json:"source,omitempty"`
 	// ExecutedQuery is the query as executed, for display (never contains secrets).
-	ExecutedQuery string   `json:"executedQuery,omitempty"`
-	Truncated     bool     `json:"truncated,omitempty"`
-	Notices       []Notice `json:"notices,omitempty"`
+	ExecutedQuery string `json:"executedQuery,omitempty"`
+	// Pages is how many upstream pages a connector fetched for the frame (FR-072 AC7).
+	Pages     int      `json:"pages,omitempty"`
+	Truncated bool     `json:"truncated,omitempty"`
+	Notices   []Notice `json:"notices,omitempty"`
 }
 
 // Frame is a named, columnar table. All fields have the same length (FR-010 AC2).

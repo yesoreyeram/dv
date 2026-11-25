@@ -46,7 +46,7 @@ describe("Data sources page (FR-015 AC6)", () => {
     expect(
       await screen.findByText("Encrypted secret storage is planned for milestone M3."),
     ).toBeVisible();
-    expect(screen.getByText(/Stored credentials are not supported yet\./)).toBeVisible();
+    expect(screen.getByText(/credentials cannot be stored through the UI yet\./)).toBeVisible();
     expect(screen.queryByText(/encrypted at rest/i)).not.toBeInTheDocument();
   });
 

@@ -41,8 +41,18 @@ Status values: `Planned`, `In progress`, `Done` (implemented, tested, merged).
 | FR-031 | MySQL source | M | M4 | Planned |
 | FR-032 | SQLite source | S | M4 | Planned |
 | FR-033 | Safe SQL query editor | M | M4 | Planned |
-| FR-040 | REST/JSON API source | M | M5 | Planned |
-| FR-041 | GraphQL API source | S | M5 | Planned |
+| FR-040 | Generic HTTP/REST connector (`http` source) | M | M5 | In progress |
+| FR-041 | GraphQL connector (POST + variables + cursor) | S | M5 | Planned |
+| FR-070 | Connector catalogue (categories, status, presets) | M | M5 | Planned |
+| FR-071 | Connection authentication methods | M | M5 | In progress |
+| FR-072 | Pagination strategies | M | M5 | In progress |
+| FR-073 | jq-compatible response selector | M | M5 | In progress |
+| FR-074 | JSONata response selector | S | M5 | Planned |
+| FR-075 | Vendor connector presets (Azure Monitor, Google Cloud Monitoring, CloudWatch, Datadog, Splunk, Dynatrace, AppDynamics, Sentry, GitHub, Vercel, New Relic, ThousandEyes, Cloudflare, …) | M | M5 | Planned |
+| FR-076 | Transformation pipeline (filter, select, rename, compute, convert, sort, limit, aggregate) | M | M8 | Planned |
+| FR-077 | Asynchronous job APIs (start → poll → read) | S | M5 | Planned |
+| FR-078 | Joins and unions across queries | M | M8 | Planned |
+| FR-079 | Connection secrets by reference (env / file) until FR-022 | M | M5 | In progress |
 | FR-050 | Dashboards: create, save, load | M | M6 | Planned |
 | FR-051 | Dashboard variables | S | M6 | Planned |
 | FR-052 | Dashboard time range | M | M6 | Planned |
@@ -399,8 +409,8 @@ Until M3 adds stored, editable instances, operators declare data-source instance
 config file so the query API is usable.
 - AC1: config file `datasources: [{"uid","type","name","jsonData"}]`. `uid` matches
   `^[A-Za-z0-9_-]{1,40}$` and is unique; `name` is 1–100 characters; `type` must be a
-  registered source plugin. Unknown keys — including `secureJsonData`, which is refused until
-  FR-022 ships encrypted secrets — fail start-up.
+  registered source plugin. Unknown keys fail start-up. `secureJsonData` accepts only
+  `{env}`/`{file}` references (FR-079) until FR-022 ships encrypted secrets.
 - AC2: every instance is checked with its plugin's `Validate` at start-up; a failure aborts
   start-up with the uid and the plugin's (path-free) message.
 - AC3: `GET /api/v1/datasources` lists `{"uid","type","name"}` sorted by uid. Settings
@@ -556,11 +566,305 @@ screen, and keep the query in the URL so a view can be bookmarked and shared.
   names the Run action and its shortcut; while a query runs it shows a skeleton and a
   `role="status"` text; cancelled and failed runs keep their text or alert (AC3, AC5).
 
+## Connections and data integration (M5, M8)
+
+The research behind these requirements is in `docs/research/CONNECTORS.md`, and the
+architecture is in ADR-0008. In short, every vendor connector is a configuration of one
+hardened HTTP engine (FR-040). The engine is built from four parts:
+
+- authentication (FR-071);
+- pagination (FR-072);
+- a selector that turns responses into rows (FR-073/FR-074);
+- data-only presets (FR-075).
+
+Frames from any connector then flow through one transformation pipeline (FR-076, FR-078).
+The result is a unified, typed table, whatever the source.
+
+### FR-040 — Generic HTTP/REST connector (M)
+Source type `http`. The operator provisions an instance with a base URL, authentication
+and default headers. A query names a method, a relative path, parameters, pagination and
+selectors. The answer is one data frame.
+- AC1 (instance settings, `jsonData`): `baseURL` must be an absolute `https` URL. Plain
+  `http` is refused unless `allowInsecureHTTP: true` is set, and Validate then logs a
+  warning. `baseURL` carries no user info, query or fragment. `auth` is one FR-071 method.
+  `headers` lists at most 32 `{name, value}` entries that are not secret. `timeout` is
+  1 s–5 min, defaults to 30 s, and is capped by the query timeout. `maxResponseBytes`
+  (per page) is 1 KiB–256 MiB and defaults to 16 MiB. Unknown keys fail start-up.
+- AC2 (query model): `method` is `GET` (the default) or `POST`. `path` starts with `/`
+  and is appended to the base URL's path. After `.`/`..` are resolved and
+  percent-decoded the result must stay under the base path. An absolute URL, a scheme-relative `//host` path, a backslash,
+  NUL or a control character is refused. `params` lists at most 64 `{name, value}`
+  entries, repeats allowed, in order. `headers` lists at most 32 `{name, value}` entries.
+  `body` is any JSON value of at most 64 KiB, allowed only with `POST`, and is sent as
+  `application/json`. Unknown keys are refused.
+- AC3 (time macros): in parameter values, header values and body strings, `${__from}`
+  and `${__to}` become the query time range in epoch milliseconds.
+  - `${__from:s}` and `${__to:s}` give epoch seconds.
+  - `${__from:iso}` and `${__to:iso}` give RFC 3339 UTC.
+  - Without a time range a macro is an `invalid_query` error.
+  - Any other `${…}` text is left as is.
+- AC4 (header safety): header names must be RFC 9110 tokens, and values must contain no
+  CR, LF or NUL. A query may not set `Authorization`, `Proxy-Authorization`, `Cookie`,
+  `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`,
+  `Forwarded` or `X-Forwarded-*`. It also may not set a header or parameter that the
+  instance's authentication method sets (NFR-SEC-020).
+- AC5 (responses): any 2xx response whose media type is `application/json` or `+json`
+  is decoded as JSON. Any other 2xx media type is `415 unsupported_format` until FR-060
+  formats can be chosen. A non-2xx answer maps as follows:
+  - upstream 401/403 → `502 upstream_auth_failed`;
+  - upstream 404 → `404 not_found`;
+  - upstream 429 → `429 upstream_rate_limited`, carrying the upstream `Retry-After` in
+    the message when present;
+  - any other status → `502 upstream_error` naming the upstream status code.
+  - a destination refused by the SSRF guard (NFR-SEC-005) → `403
+    destination_not_allowed`, naming only the blocked range category;
+  - a connection, TLS or protocol failure → `502 upstream_unreachable`.
+  Upstream bodies, headers and URLs with parameters are never returned to the client.
+- AC6 (frame): the rows from every page, selected by FR-073, become one frame. Without
+  `columns`, rows decode like the JSON format (FR-012): object keys in order of first
+  appearance, optional `flatten`, type inference and `fieldTypes` overrides. With
+  `columns`, the frame has exactly those fields in that order (FR-073 AC6).
+  `meta.executedQuery` is `METHOD path` without parameter values, so secrets in
+  parameters cannot leak.
+- AC7: `Validate` and `Health` check the settings statically. `Health` does not call the
+  upstream until a health-check path can be configured (FR-075).
+
+### FR-041 — GraphQL connector (S)
+- AC1: `POST` with `{query, variables}`. Variables may use the FR-040 AC3 time macros.
+- AC2: cursor pagination from `pageInfo { endCursor hasNextPage }`. The cursor is
+  injected as a named variable.
+- AC3: a response with `errors[]` and no `data` is `502 upstream_error` with the first
+  message, truncated to 200 characters.
+
+### FR-070 — Connector catalogue (M)
+- AC1: `GET /api/v1/connectors` lists every connector: id, name, category
+  (`cloud-monitoring`, `apm`, `logs`, `metrics`, `traces`, `devops`, `incident`,
+  `database`, `edge`, `open-data`), supported auth methods, pagination style, docs link
+  and a status (`available`, `preview`, `planned`).
+- AC2: the Data sources page shows the catalogue grouped by category, with a search box
+  and category filter (Grafana/Datadog style tiles). Planned connectors are labelled
+  "Planned", never presented as working (NFR-AUD-004).
+- AC3: the catalogue covers at least Azure Monitor, Google Cloud Monitoring, AWS
+  CloudWatch, Datadog, Splunk, Dynatrace, AppDynamics, Sentry, GitHub, Vercel, New Relic,
+  ThousandEyes, Cloudflare, Prometheus, Loki, Tempo, Jaeger, Elasticsearch/OpenSearch,
+  ClickHouse, PostgreSQL, MySQL, Microsoft SQL Server, Oracle, MongoDB and generic
+  HTTP/JSON. It also lists open-data/IoT APIs (OpenAQ, Open-Meteo, USGS).
+
+### FR-071 — Connection authentication methods (M)
+The instance chooses exactly one `auth.type`. Secret material is only ever read from
+`secureJsonData` (FR-079 now, FR-022 later). It is never read from `jsonData` or from a
+query.
+- AC1 `none`.
+- AC2 `basic`: `username` in `jsonData.auth.username` or secret `username`, and secret
+  `password`. They are sent as `Authorization: Basic` (RFC 7617).
+- AC3 `bearer`: secret `token`, sent as `Authorization: Bearer <token>`.
+- AC4 `apiKey`: 1–4 `keys` of `{in: "header"|"query", name, prefix?, secret}`.
+  - Each key sends secret `secret` in header or parameter `name`, optionally prefixed by
+    `prefix`. Examples: `Api-Token ` for Dynatrace, `ApiKey ` for Elasticsearch, and two
+    headers for Datadog.
+  - Names follow AC4 of FR-040. A header key may not be a hop-by-hop header or `Host`.
+- AC5 `oauth2ClientCredentials` (Planned):
+  - Token URL (passes the SSRF guard), client id, and a client secret or a private-key JWT
+    assertion (RFC 7523).
+  - Scopes or audience/resource.
+  - Tokens are cached per instance until 60 s before expiry. A refresh failure is
+    `502 upstream_auth_failed`.
+- AC6 `jwtBearer` (Planned): a Google service-account key signs an RS256 JWT, which is
+  exchanged for an access token. A GitHub App JWT is exchanged for an installation token.
+- AC7 `awsSigV4` (Planned): access key, secret key and optional session token, or
+  AssumeRole (role ARN, external id), or web identity (OIDC token file). Region and
+  service are set per instance. Requests are signed after every other header is final.
+- AC8 `azureAd` (Planned): Microsoft Entra ID with a client secret, a client certificate,
+  managed identity, or workload identity federation (a federated token file sent as
+  `client_assertion`).
+- AC9 `workloadIdentityFederation` (Planned): for GCP STS token exchange
+  (external-account config) and for AWS web identity. The subject token comes from a
+  file or the platform metadata endpoint, which is allow-listed explicitly (NFR-SEC-005
+  AC5).
+- AC10 `mtls` (Planned): a client certificate and key from secret references. It
+  combines with any other method.
+- AC11: a credential is never sent over plain HTTP unless the instance set
+  `allowInsecureHTTP`. Credentials are never forwarded to a host other than the base
+  URL's host. This holds for pagination URLs (FR-072 AC5) and for redirects.
+
+### FR-072 — Pagination strategies (M)
+`pagination.type` is one of `none` (the default), `offset`, `page`, `cursor`, `nextUrl`
+and `linkHeader`. Each page goes through the same request pipeline: auth, SSRF guard,
+size cap and selector.
+- AC1 `offset`:
+  - `offsetParam` (default `offset`), `limitParam` (default `limit`), `limit` (1–10 000,
+    default 100) and `start` (default 0).
+  - The offset advances by the number of rows the page selected.
+  - Paging stops when a page selects fewer rows than `limit`.
+- AC2 `page`:
+  - `pageParam` (default `page`), `sizeParam` (optional), `size` and `start` (default 1).
+  - Paging stops when a page selects fewer rows than `size`, or no rows when `size` is
+    unset.
+- AC3 `cursor`:
+  - `cursorSelector` is a jq expression evaluated on the page body; its first output is
+    the next cursor. `cursorParam` names the parameter that carries it.
+  - Paging stops when the cursor is null, empty, `false`, or equal to one already sent
+    (loop detection).
+  - `cursorOnly: true` sends only the cursor parameter on follow-up requests, as
+    Dynatrace's `nextPageKey` requires.
+  - With `method: POST`, `cursorBodyPath` (a dot path) puts the cursor into the JSON
+    body instead.
+- AC4 `nextUrl`: `nextUrlSelector` (jq) yields the next URL, absolute or relative to the
+  current page. Examples are Azure `nextLink` and ThousandEyes `_links.next.href`.
+- AC5 `linkHeader`: RFC 8288 `Link` with `rel="next"` (the relation is matched without
+  regard to case, among several relations). A `results="false"` attribute stops paging
+  (Sentry). The rule for next URLs (AC4 and AC5) is that the URL must have the same
+  scheme, host and port as `baseURL` and a path under the base path; otherwise the query
+  fails with `502 upstream_error` ("next page URL leaves the connection's base URL").
+  Credentials are therefore never sent elsewhere.
+- AC6 (budgets):
+  - `maxPages` is 1–100 and defaults to 10.
+  - Paging also stops at the query row limit (one row past the limit is fetched to mark
+    truncation), at the query byte limit, and at the query deadline.
+  - When paging stopped because of `maxPages` while more pages existed, the frame is
+    marked truncated with the notice "Stopped after N pages (maxPages); more data is
+    available."
+- AC7: `meta.pages` reports how many pages were fetched.
+
+### FR-073 — jq-compatible response selector (M)
+dv includes a sandboxed, dependency-free evaluator for a documented subset of the jq 1.7
+language (ADR-0008).
+- AC1 (selection): `rows` is a jq expression applied to each page's body, and each output
+  is one row. The default is `if type == "array" then .[] else . end`.
+- AC2 (supported language):
+  - Paths: `.`, `.a`, `."a"`, `.["a"]`, `.[n]` with negative `n`, `.[m:n]`, `.[]`, `..`,
+    and the optional `?` suffix.
+  - Operators: `|`, `,`, `//`, `and`, `or`, `not`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `+`,
+    `-`, `*`, `/` and `%`, with jq semantics for null, string, array and object
+    operands.
+  - Literals, plus array and object construction: `{a}`, `{"a": f}`, `{(f): g}`,
+    `{$x}`.
+  - Control: `if … then … elif … else … end`, `try f`, `f as $x | g`, and
+    `reduce f as $x (init; update)`.
+  - Functions: `empty`, `select`, `map`, `map_values`, `length`, `keys`, `has`, `type`,
+    `add`, `any`, `all`, `range/1`, `range/2`, `first`, `last`, `first(f)`, `limit`,
+    `sort`, `sort_by`, `group_by`, `unique`, `unique_by`, `min`, `max`, `min_by`,
+    `max_by`, `reverse`, `flatten`, `to_entries`, `from_entries`, `with_entries`,
+    `transpose`, `tostring`, `tonumber`, `ascii_downcase`, `ascii_upcase`, `ltrimstr`,
+    `rtrimstr`, `startswith`, `endswith`, `split/1`, `join`, `test` (RE2), `tojson`,
+    `fromjson`, `todate`, `fromdate`, `floor`, `ceil`, `round`, `abs`, `values`,
+    `nulls`, `strings`, `numbers`, `objects`, `arrays`, `not`, `isempty`.
+- AC3 (excluded): the language does not offer `env`, `$ENV`, `input`, `inputs`,
+  `debug`, `stderr`, `input_filename`, `$__loc__`, `def`, `foreach`, `label`/`break`,
+  `getpath`/`setpath`/`paths`, string interpolation, `@format` strings, `?//`,
+  destructuring, assignment operators (`=`, `|=`, `+=` and so on), `now` or `halt`.
+  Any of these is a parse error that names the construct and its position.
+- AC4 (semantics): results match jq 1.7 for the supported subset. Object key order is
+  kept from input and construction. Numbers keep their JSON text until arithmetic, so
+  64-bit IDs are not rounded. Sorting follows jq's order: null < false < true < numbers <
+  strings < arrays < objects.
+- AC5 (budgets, NFR-SEC-021):
+  - Expressions are at most 4 096 bytes with nesting of 64 or less.
+  - Evaluation is limited to 1 000 000 steps per page, 100 000 outputs and a value depth
+    of 64.
+  - `range` and `limit` are counted against the steps.
+  - The context is checked every 1 024 steps.
+  - Exceeding a budget is `400 invalid_query` ("selector exceeded its evaluation
+    budget").
+- AC6 (columns): `columns` lists 1–1 024 `{name, selector, type?}` entries. Each
+  `selector` is a jq expression applied to a row. The first output becomes the cell, and
+  `empty` or an error becomes null. `type` is any frame type and is coerced like
+  `fieldTypes`. Names must be unique.
+- AC7: a selector error on a row, outside `try` or `?`, fails the query with `400
+  invalid_query` and the jq-style message, for example "cannot index number with
+  \"a\"". The message never contains response data longer than 40 characters.
+
+### FR-074 — JSONata response selector (S)
+- AC1: `selectorLanguage: "jsonata"` evaluates `rows` and column selectors as JSONata
+  2.x expressions. The budgets and sandbox are the same as for jq (NFR-SEC-021), and
+  there is no `$eval`.
+- AC2: the selectors behave the same whichever language the query uses.
+
+### FR-075 — Vendor connector presets (M)
+- AC1: a preset is data compiled into the binary. It names the connector id, base URL
+  template (for example `https://api.{site}`), allowed auth methods, default headers,
+  pagination, an optional health-check path, and named query templates with defaults for
+  `rows`/`columns`.
+- AC2: a preset instance is provisioned as `{"type": "http", "jsonData": {"preset":
+  "github", …}}`. Values the user sets override preset defaults, except the base host,
+  which may only come from the preset's allowed list (for example Datadog sites, the
+  GitHub Enterprise host the operator sets).
+- AC3: the first presets ship with tests against recorded fixtures:
+  - GitHub (link pagination, bearer);
+  - Sentry (link with `results`);
+  - Vercel (cursor `pagination.next` → `until`);
+  - Datadog (two API keys, cursor);
+  - Dynatrace (`Api-Token`, `cursorOnly`);
+  - Azure Monitor (Entra ID, `nextLink`);
+  - Google Cloud Monitoring (JWT/WIF, `nextPageToken`);
+  - AWS CloudWatch (SigV4, `NextToken`);
+  - Splunk (bearer, async + offset);
+  - AppDynamics (OAuth2);
+  - New Relic (NerdGraph cursor);
+  - ThousandEyes (`_links.next.href`);
+  - Cloudflare (page).
+- AC4: each preset records the vendor reference URL and the date it was checked.
+
+### FR-076 — Transformation pipeline (M)
+- AC1: a query request may carry `transforms`: an ordered list of steps applied
+  server-side to the frames of one or more `refId`s. The output is a new `refId`.
+- AC2: the steps are:
+  - `filter`, with a condition expression over fields (comparison, `and`/`or`,
+    `contains`, `regex` on RE2);
+  - `select`/`rename`/`reorder`;
+  - `compute`, which adds a field from an arithmetic or string expression;
+  - `convert`, which changes field types;
+  - `sort` on several keys;
+  - `limit`;
+  - `groupBy` with `count`, `sum`, `avg`, `min`, `max`, `first`, `last`;
+  - `pivot`/`unpivot`.
+- AC3: steps run under the query's row and byte budget. A step that would exceed it
+  truncates with a notice.
+- AC4: Explore shows the step list with add, reorder and remove, and shows the result of
+  each step (Power Query style).
+- AC5: transforms never fetch data. They only see frames already returned in the
+  request.
+- AC6 (Could): a `filter` on a field mapped to an upstream parameter is pushed down into
+  the request.
+
+### FR-077 — Asynchronous job APIs (S)
+- AC1: a query may declare a `job`: a start request, a status selector with a done
+  condition, a poll interval (≥ 500 ms), a maximum wait (≤ the query timeout) and a
+  results request with its own pagination. This covers Splunk search jobs and CloudWatch
+  Logs Insights.
+- AC2: a job is cancelled upstream (where the API allows it) when the query is cancelled
+  or times out.
+
+### FR-078 — Joins and unions across queries (M)
+- AC1: `join` with `inner`, `left` or `outer`, on one or more key fields of two input
+  frames. Key types must match, or the step coerces them with `convert` first.
+- AC2: `joinByTime` is a time-aligned outer join with an optional tolerance, as in
+  Grafana's "join by field".
+- AC3: `union` concatenates frames, matching fields by name. Missing fields become null.
+- AC4: a join that would produce more than the row limit stops and marks the result
+  truncated. It never builds the full cross product in memory first.
+
+### FR-079 — Connection secrets by reference (M)
+Until FR-022 adds encrypted, API-managed secrets, provisioned instances name where each
+secret lives. The secret value is never written into the config file.
+- AC1: `datasources[].secureJsonData` maps a secret name to `{"env": "VAR"}` or `{"file":
+  "/abs/path"}`. A plain string value fails start-up with "secureJsonData values must be
+  {env} or {file} references".
+- AC2: references are resolved once at start-up.
+  - A missing variable, an unreadable file, an empty value or a value over 16 KiB fails
+    start-up.
+  - The error names the datasource uid and the secret name, never the value.
+  - A trailing newline in a file is trimmed.
+- AC3: resolved values live only in `plugin.SecureValues` (NFR-SEC-002). They are never
+  logged and are absent from `GET /api/v1/datasources`. Only the `secureJsonFields` key
+  names are visible where settings are shown.
+- AC4: a secret name that the instance's auth method needs but that is not provisioned
+  fails start-up (via the plugin's `Validate`).
+
 ### FR-020 … FR-064
 Defined at milestone planning time; acceptance criteria are written before implementation
 (see `docs/BACKLOG.md`). Draft intent:
 - **FR-020/021** Argon2id-hashed passwords, server-side sessions, CSRF protection; RBAC enforced server-side on every endpoint.
 - **FR-022** Secrets encrypted with AES-256-GCM envelope encryption; write-only through the API.
 - **FR-030–033** Parameterized queries only; per-source read-only credentials recommended; statement timeouts and row limits.
-- **FR-040/041** Outbound requests pass the SSRF guard (NFR-SEC-005).
 - **FR-050–052** Dashboards stored as versioned JSON documents with schema validation.

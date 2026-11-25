@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/yesoreyeram/dv/internal/buildinfo"
@@ -16,6 +17,7 @@ import (
 	"github.com/yesoreyeram/dv/internal/fsroot"
 	"github.com/yesoreyeram/dv/internal/health"
 	"github.com/yesoreyeram/dv/internal/httpx"
+	"github.com/yesoreyeram/dv/internal/netguard"
 	"github.com/yesoreyeram/dv/internal/plugin"
 	"github.com/yesoreyeram/dv/internal/plugins/builtin"
 	"github.com/yesoreyeram/dv/internal/query"
@@ -61,9 +63,20 @@ func run(ctx context.Context, args []string, src config.Source, stdout, stderr i
 	defer func() { _ = roots.Close() }()
 	// Compiled-in plugins are registered here before the registry is frozen (ADR-0002).
 	plugins := plugin.NewRegistry()
+	allowed, err := netguard.ParseAllowed(cfg.OutboundAllowedCIDRs)
+	if err != nil {
+		return err
+	}
+	for _, p := range allowed {
+		if cats := netguard.Sensitive(p); len(cats) > 0 {
+			log.Warn("outboundAllowedCidrs exempts a sensitive range from the SSRF guard; connectors can reach it",
+				"cidr", p.String(), "ranges", strings.Join(cats, ", "))
+		}
+	}
 	if err := builtin.Register(plugins, builtin.Options{
 		Roots: roots, FileMaxBytes: cfg.FileMaxBytes,
 		QueryDefaults: frame.Limits{MaxRows: cfg.QueryMaxRows, MaxBytes: cfg.QueryMaxBytes},
+		Outbound:      netguard.Policy{Allowed: allowed},
 	}); err != nil {
 		return err
 	}
@@ -73,7 +86,7 @@ func run(ctx context.Context, args []string, src config.Source, stdout, stderr i
 	log.Info("plugins registered", "fileRoots", roots.Names())
 	// Provisioned data sources are validated by their plugins even while the query API
 	// is off, so a broken config fails at start-up rather than on first use (FR-017 AC2).
-	queries, err := newQueryService(ctx, cfg, plugins, log)
+	queries, err := newQueryService(ctx, cfg, src, plugins, log)
 	if err != nil {
 		return err
 	}
@@ -84,10 +97,16 @@ func run(ctx context.Context, args []string, src config.Source, stdout, stderr i
 	return srv.ListenAndServe(ctx)
 }
 
-func newQueryService(ctx context.Context, cfg config.Config, plugins *plugin.Registry, log *slog.Logger) (*query.Service, error) {
+func newQueryService(ctx context.Context, cfg config.Config, src config.Source, plugins *plugin.Registry, log *slog.Logger) (*query.Service, error) {
 	instances := make([]query.Instance, 0, len(cfg.DataSources))
 	for _, ds := range cfg.DataSources {
-		instances = append(instances, query.Instance{UID: ds.UID, Type: ds.Type, Name: ds.Name, JSONData: ds.JSONData})
+		secrets, err := ds.ResolveSecrets(src)
+		if err != nil {
+			return nil, fmt.Errorf("provisioned data sources: %w", err)
+		}
+		instances = append(instances, query.Instance{
+			UID: ds.UID, Type: ds.Type, Name: ds.Name, JSONData: ds.JSONData, SecureJSONData: plugin.SecureValues(secrets),
+		})
 	}
 	svc, err := query.New(ctx, query.Options{
 		Sources: plugins, Instances: instances, Timeout: cfg.QueryTimeout.Std(), Logger: log,

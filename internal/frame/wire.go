@@ -66,7 +66,7 @@ func (f *Frame) MarshalJSON() ([]byte, error) {
 }
 
 func isZeroMeta(m Meta) bool {
-	return m.Source == "" && m.ExecutedQuery == "" && !m.Truncated && len(m.Notices) == 0
+	return m.Source == "" && m.ExecutedQuery == "" && m.Pages == 0 && !m.Truncated && len(m.Notices) == 0
 }
 
 func encodeColumn(fld *Field) (json.RawMessage, error) {

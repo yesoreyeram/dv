@@ -42,6 +42,8 @@ export interface Notice {
 export interface FrameMeta {
   source?: string;
   executedQuery?: string;
+  /** Upstream pages a connector fetched (FR-072 AC7). */
+  pages?: number;
   truncated?: boolean;
   notices?: Notice[];
 }
@@ -103,6 +105,9 @@ function decodeMeta(raw: unknown): FrameMeta {
   const meta: FrameMeta = {};
   if (typeof raw.source === "string") meta.source = raw.source;
   if (typeof raw.executedQuery === "string") meta.executedQuery = raw.executedQuery;
+  if (typeof raw.pages === "number" && Number.isInteger(raw.pages) && raw.pages > 0) {
+    meta.pages = raw.pages;
+  }
   if (raw.truncated === true) meta.truncated = true;
   if (Array.isArray(raw.notices)) {
     meta.notices = raw.notices.filter(

@@ -29,20 +29,33 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   // Serves the built SPA from the real Go binary (`make build` first).
-  webServer: {
-    command: "../bin/dv",
-    url: `${baseURL}/readyz`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-    env: {
-      DV_HTTP_ADDR: `127.0.0.1:${port}`,
-      DV_WEB_DIR: "../web/dist",
-      DV_LOG_FORMAT: "text",
-      DV_LOG_LEVEL: "warn",
-      DV_RATE_LIMIT_RPS: "500",
-      DV_RATE_LIMIT_BURST: "1000",
-      DV_FILE_ROOTS: `samples=${samples}`,
-      DV_CONFIG_FILE: queryDemo,
+  webServer: [
+    {
+      // Deterministic vendor-API fixtures for the http connector (NFR-MAINT-009 AC2).
+      command: "../bin/dv-mockapi -addr 127.0.0.1:9090",
+      url: "http://127.0.0.1:9090/api/echo",
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
     },
-  },
+    {
+      command: "../bin/dv",
+      url: `${baseURL}/readyz`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      env: {
+        DV_HTTP_ADDR: `127.0.0.1:${port}`,
+        DV_WEB_DIR: "../web/dist",
+        DV_LOG_FORMAT: "text",
+        DV_LOG_LEVEL: "warn",
+        DV_RATE_LIMIT_RPS: "500",
+        DV_RATE_LIMIT_BURST: "1000",
+        DV_FILE_ROOTS: `samples=${samples}`,
+        DV_CONFIG_FILE: queryDemo,
+        // Fixture credentials of dv-mockapi (internal/mockapi.DefaultTokens); not secrets.
+        DV_DEMO_GITHUB_TOKEN: "s3cr3t-token",
+        DV_DEMO_DATADOG_API_KEY: "dd-api-key",
+        DV_DEMO_DATADOG_APP_KEY: "demo-app-key",
+      },
+    },
+  ],
 });

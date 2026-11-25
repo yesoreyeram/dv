@@ -59,6 +59,7 @@ import {
   jsonControls,
   jsonQueryOptions,
 } from "@/lib/jsonOptions";
+import { buildHttpQuery } from "@/lib/httpQuery";
 import { getSplit, setSplit, SPLIT } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
 
@@ -121,7 +122,17 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   const [maxRows, setMaxRows] = useState(params.get("maxRows") ?? "");
   const [rowsPath, setRowsPath] = useState(params.get("rowsPath") ?? "");
   const [flatten, setFlatten] = useState(params.get("flatten") === "1");
-  const [errors, setErrors] = useState<{ path?: string; maxRows?: string; rowsPath?: string }>({});
+  // Generic HTTP connector fields (FR-040).
+  const [method, setMethod] = useState(params.get("method") === "POST" ? "POST" : "GET");
+  const [rowsSel, setRowsSel] = useState(params.get("rows") ?? "");
+  const [httpOpts, setHttpOpts] = useState(params.get("opts") ?? "");
+  const [errors, setErrors] = useState<{
+    path?: string;
+    maxRows?: string;
+    rowsPath?: string;
+    rows?: string;
+    options?: string;
+  }>({});
   const [run, setRun] = useState<RunState>({ kind: "idle" });
   const [frameIdx, setFrameIdx] = useState(0);
   const [view, setView] = useState<View>(parseView(params.get("view")));
@@ -133,29 +144,41 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   // JSON options apply to the format the query will use (FR-012 AC9).
   const effFormat = effectiveFormat(format, path, formats);
   const controls = jsonControls(effFormat);
+  const isHttp = sources.find((s) => s.uid === ds)?.type === "http";
 
   const execute = async () => {
     const rows = parseRowLimit(maxRows);
     const next: typeof errors = {};
     if (path.trim() === "") next.path = t("explore.pathRequired");
     if (rows === null) next.maxRows = t("explore.maxRowsInvalid");
-    if (controls.rowsPath && rowsPath.trim() !== "" && !isValidRowsPath(rowsPath.trim())) {
+    let httpQuery: Record<string, unknown> | null = null;
+    if (isHttp) {
+      const built = buildHttpQuery({ method, path, rows: rowsSel, options: httpOpts });
+      if (built.ok) httpQuery = built.query;
+      else if (built.error === "path" && !next.path) next.path = t("explore.httpPathInvalid");
+      else if (built.error === "rows") next.rows = t("explore.rowsSelectorInvalid");
+      else if (built.error === "options") next.options = t("explore.httpOptionsInvalid");
+    } else if (controls.rowsPath && rowsPath.trim() !== "" && !isValidRowsPath(rowsPath.trim())) {
       next.rowsPath = t("explore.rowsPathInvalid");
     }
     setErrors(next);
-    if (next.path || next.maxRows || next.rowsPath) return;
+    if (next.path || next.maxRows || next.rowsPath || next.rows || next.options) return;
 
-    const options = jsonQueryOptions(effFormat, { rowsPath, flatten });
+    const options = isHttp ? undefined : jsonQueryOptions(effFormat, { rowsPath, flatten });
     const search: Record<string, string> = { ds, path: path.trim() };
-    if (format) search.format = format;
+    if (!isHttp && format) search.format = format;
     if (rows !== undefined) search.maxRows = String(rows);
     if (typeof options?.rowsPath === "string") search.rowsPath = options.rowsPath;
     if (options?.flatten === true) search.flatten = "1";
+    if (isHttp && method === "POST") search.method = method;
+    if (isHttp && rowsSel.trim() !== "") search.rows = rowsSel.trim();
+    if (isHttp && httpOpts.trim() !== "") search.opts = httpOpts.trim();
     if (view === "timeseries") search.view = view;
     setParams(search, { replace: true });
     // Same fields as the URL, never the result (FR-018 AC9).
+    // HTTP queries keep only the data source and path in history for now (B-101).
     const entry: HistoryQuery = { ds, path: path.trim() };
-    if (format) entry.format = format;
+    if (!isHttp && format) entry.format = format;
     if (rows !== undefined && rows !== null) entry.maxRows = rows;
     if (typeof options?.rowsPath === "string") entry.rowsPath = options.rowsPath;
     if (options?.flatten === true) entry.flatten = true;
@@ -172,7 +195,7 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
         {
           refId: REF_ID,
           datasource: ds,
-          query: {
+          query: httpQuery ?? {
             path: path.trim(),
             ...(format ? { format } : {}),
             ...(options ? { options } : {}),
@@ -200,7 +223,9 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
     e.preventDefault();
     void execute();
   };
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const onKeyDown = (
+    e: KeyboardEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
+  ) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       void execute();
@@ -230,6 +255,8 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
   const rowsId = `${ids}-rows`;
   const rowsPathId = `${ids}-rowspath`;
   const flattenId = `${ids}-flatten`;
+  const rowsSelId = `${ids}-rowssel`;
+  const optsId = `${ids}-opts`;
 
   const editorId = `${ids}-editor`;
 
@@ -274,10 +301,26 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
                   ))}
                 </select>
               </Field>
+              {isHttp ? (
+                <Field id={`${ids}-method`} label={t("explore.method")}>
+                  <select
+                    id={`${ids}-method`}
+                    className={inputClass}
+                    onKeyDown={onKeyDown}
+                    value={method}
+                    onChange={(e) => {
+                      setMethod(e.target.value);
+                    }}
+                  >
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                  </select>
+                </Field>
+              ) : null}
               <Field
                 id={pathId}
                 label={t("explore.path")}
-                hint={t("explore.pathHint")}
+                hint={isHttp ? t("explore.httpPathHint") : t("explore.pathHint")}
                 error={errors.path ?? null}
               >
                 <input
@@ -293,28 +336,76 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
                   aria-required="true"
                   autoComplete="off"
                   spellCheck={false}
-                  maxLength={1024}
+                  maxLength={2048}
                 />
               </Field>
-              <Field id={`${ids}-fmt`} label={t("explore.format")}>
-                <select
-                  id={`${ids}-fmt`}
-                  className={inputClass}
-                  onKeyDown={onKeyDown}
-                  value={format}
-                  onChange={(e) => {
-                    setFormat(e.target.value);
-                  }}
-                >
-                  <option value="">{t("explore.formatAuto")}</option>
-                  {formats.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {controls.rowsPath ? (
+              {isHttp ? (
+                <>
+                  <Field
+                    id={rowsSelId}
+                    label={t("explore.rowsSelector")}
+                    hint={t("explore.rowsSelectorHint")}
+                    error={errors.rows ?? null}
+                  >
+                    <input
+                      id={rowsSelId}
+                      className={cn(inputClass, "font-mono")}
+                      onKeyDown={onKeyDown}
+                      value={rowsSel}
+                      onChange={(e) => {
+                        setRowsSel(e.target.value);
+                      }}
+                      aria-invalid={errors.rows ? true : undefined}
+                      aria-describedby={describedBy(rowsSelId, errors.rows)}
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={4096}
+                    />
+                  </Field>
+                  <Field
+                    id={optsId}
+                    label={t("explore.httpOptions")}
+                    hint={t("explore.httpOptionsHint")}
+                    error={errors.options ?? null}
+                  >
+                    <textarea
+                      id={optsId}
+                      className={cn(inputClass, "h-auto min-h-24 py-1.5 font-mono text-xs")}
+                      onKeyDown={onKeyDown}
+                      value={httpOpts}
+                      onChange={(e) => {
+                        setHttpOpts(e.target.value);
+                      }}
+                      aria-invalid={errors.options ? true : undefined}
+                      aria-describedby={describedBy(optsId, errors.options)}
+                      autoComplete="off"
+                      spellCheck={false}
+                      rows={5}
+                    />
+                  </Field>
+                </>
+              ) : null}
+              {isHttp ? null : (
+                <Field id={`${ids}-fmt`} label={t("explore.format")}>
+                  <select
+                    id={`${ids}-fmt`}
+                    className={inputClass}
+                    onKeyDown={onKeyDown}
+                    value={format}
+                    onChange={(e) => {
+                      setFormat(e.target.value);
+                    }}
+                  >
+                    <option value="">{t("explore.formatAuto")}</option>
+                    {formats.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {!isHttp && controls.rowsPath ? (
                 <Field
                   id={rowsPathId}
                   label={t("explore.rowsPath")}
@@ -337,7 +428,7 @@ function QueryForm({ sources }: { sources: DataSourceSummary[] }) {
                   />
                 </Field>
               ) : null}
-              {controls.flatten ? (
+              {!isHttp && controls.flatten ? (
                 <div className="flex items-start gap-2">
                   <input
                     id={flattenId}
@@ -703,6 +794,9 @@ function Result({
           total: t("explore.ms", { n: new Intl.NumberFormat().format(durationMs) }),
           query: frame.meta.executedQuery ?? frame.name,
         })}
+        {frame.meta.pages !== undefined
+          ? ` · ${t("explore.statsPages", { n: new Intl.NumberFormat().format(frame.meta.pages) })}`
+          : null}
       </p>
       {outcome.frames.length > 1 ? (
         // WAI-ARIA tabs pattern (FR-018 AC4): only the selected tab is in the Tab order,

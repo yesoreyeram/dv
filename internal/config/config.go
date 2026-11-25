@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,15 +98,90 @@ type Config struct {
 	QueryMaxBytes int64 `json:"queryMaxBytes"`
 	// DataSources are the provisioned data-source instances (FR-017).
 	DataSources []DataSource `json:"datasources"`
+	// OutboundAllowedCIDRs exempts networks from the connector SSRF guard, e.g. an
+	// on-premises API (NFR-SEC-005 AC3). Empty means only public addresses are reachable.
+	OutboundAllowedCIDRs []string `json:"outboundAllowedCidrs,omitempty"`
 }
 
-// DataSource is one provisioned data-source instance (FR-017 AC1). There is no secrets
-// field: secureJsonData is refused as an unknown key until FR-022 ships.
+// DataSource is one provisioned data-source instance (FR-017 AC1). Secrets are given only
+// as references (FR-079) until FR-022 ships encrypted secrets.
 type DataSource struct {
-	UID      string          `json:"uid"`
-	Type     string          `json:"type"`
-	Name     string          `json:"name"`
-	JSONData json.RawMessage `json:"jsonData,omitempty"`
+	UID            string               `json:"uid"`
+	Type           string               `json:"type"`
+	Name           string               `json:"name"`
+	JSONData       json.RawMessage      `json:"jsonData,omitempty"`
+	SecureJSONData map[string]SecretRef `json:"secureJsonData,omitempty"`
+}
+
+// SecretRef says where a secret lives: exactly one of an environment variable or an
+// absolute file path (FR-079 AC1). The value itself never appears in the config file.
+type SecretRef struct {
+	Env  string `json:"env,omitempty"`
+	File string `json:"file,omitempty"`
+}
+
+// ErrPlainSecret is returned for a secureJsonData value that is not a reference.
+var ErrPlainSecret = errors.New("secureJsonData values must be {env} or {file} references, never the secret itself")
+
+// UnmarshalJSON refuses plain values (strings, numbers) so a secret pasted into the config
+// file fails start-up without being echoed (FR-079 AC1).
+func (r *SecretRef) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || b[0] != '{' {
+		return ErrPlainSecret
+	}
+	type plain SecretRef
+	var p plain
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return ErrPlainSecret
+	}
+	*r = SecretRef(p)
+	return nil
+}
+
+// MaxSecretBytes bounds a resolved secret (FR-079 AC2).
+const MaxSecretBytes = 16 << 10
+
+var secretName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,63}$`)
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
+// ResolveSecrets reads every secret reference of ds (FR-079 AC2). Errors name the
+// datasource uid and the secret name, never the value.
+func (ds DataSource) ResolveSecrets(src Source) (map[string]string, error) {
+	out := make(map[string]string, len(ds.SecureJSONData))
+	names := make([]string, 0, len(ds.SecureJSONData))
+	for k := range ds.SecureJSONData {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		ref := ds.SecureJSONData[name]
+		at := fmt.Sprintf("datasource %q secret %q", ds.UID, name)
+		var v string
+		switch {
+		case ref.Env != "":
+			v = src.Getenv(ref.Env)
+			if v == "" {
+				return nil, fmt.Errorf("%s: environment variable %s is not set or empty", at, ref.Env)
+			}
+		case ref.File != "":
+			b, err := src.ReadFile(ref.File)
+			if err != nil {
+				return nil, fmt.Errorf("%s: the secret file cannot be read", at)
+			}
+			v = strings.TrimRight(string(b), "\r\n")
+			if v == "" {
+				return nil, fmt.Errorf("%s: the secret file is empty", at)
+			}
+		}
+		if len(v) > MaxSecretBytes {
+			return nil, fmt.Errorf("%s: the secret is longer than %d bytes", at, MaxSecretBytes)
+		}
+		out[name] = v
+	}
+	return out, nil
 }
 
 // Query limit bounds accepted by Validate.
@@ -265,6 +341,15 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 			cfg.QueryMaxBytes = n
 		}
 	}
+	if v, ok := lookup(getenv, "DV_OUTBOUND_ALLOWED_CIDRS"); ok {
+		var cidrs []string
+		for _, c := range strings.Split(v, ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				cidrs = append(cidrs, c)
+			}
+		}
+		cfg.OutboundAllowedCIDRs = cidrs
+	}
 	return errors.Join(errs...)
 }
 
@@ -414,8 +499,27 @@ func (c Config) validateQuery() []error {
 			"set queryApiAllowRemote=true (DV_QUERY_API_ALLOW_REMOTE) to expose it anyway", c.HTTPAddr))
 	}
 	seen := map[string]bool{}
+	for _, cidr := range c.OutboundAllowedCIDRs {
+		if _, err := netip.ParsePrefix(cidr); err != nil {
+			if _, err := netip.ParseAddr(cidr); err != nil {
+				errs = append(errs, fmt.Errorf("outboundAllowedCidrs: %q is not a CIDR or IP address", cidr))
+			}
+		}
+	}
 	for i, ds := range c.DataSources {
 		at := fmt.Sprintf("datasources[%d]", i)
+		for name, ref := range ds.SecureJSONData {
+			switch {
+			case !secretName.MatchString(name):
+				errs = append(errs, fmt.Errorf("%s: secureJsonData key %q must match %s", at, name, secretName))
+			case (ref.Env == "") == (ref.File == ""):
+				errs = append(errs, fmt.Errorf("%s: secureJsonData.%s needs exactly one of env or file", at, name))
+			case ref.Env != "" && !envName.MatchString(ref.Env):
+				errs = append(errs, fmt.Errorf("%s: secureJsonData.%s.env is not a valid variable name", at, name))
+			case ref.File != "" && !filepath.IsAbs(ref.File):
+				errs = append(errs, fmt.Errorf("%s: secureJsonData.%s.file must be an absolute path", at, name))
+			}
+		}
 		if !dataSourceUID.MatchString(ds.UID) {
 			errs = append(errs, fmt.Errorf("%s: uid %q must match %s", at, ds.UID, dataSourceUID))
 		} else if seen[ds.UID] {

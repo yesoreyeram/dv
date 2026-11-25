@@ -6,9 +6,11 @@ import (
 
 	"github.com/yesoreyeram/dv/internal/frame"
 	"github.com/yesoreyeram/dv/internal/fsroot"
+	"github.com/yesoreyeram/dv/internal/netguard"
 	"github.com/yesoreyeram/dv/internal/plugin"
 	"github.com/yesoreyeram/dv/internal/plugins/csvformat"
 	"github.com/yesoreyeram/dv/internal/plugins/filesource"
+	"github.com/yesoreyeram/dv/internal/plugins/httpsource"
 	"github.com/yesoreyeram/dv/internal/plugins/jsonformat"
 )
 
@@ -21,6 +23,8 @@ type Options struct {
 	// QueryDefaults are the result limits sources apply when a query sets none; zero
 	// members use each source's built-in defaults.
 	QueryDefaults frame.Limits
+	// Outbound is the SSRF policy for connector sources (NFR-SEC-005).
+	Outbound netguard.Policy
 }
 
 // Register adds every built-in plugin to reg. It does not freeze reg.
@@ -34,5 +38,8 @@ func Register(reg *plugin.Registry, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("file source: %w", err)
 	}
-	return reg.RegisterSource(fs)
+	if err := reg.RegisterSource(fs); err != nil {
+		return err
+	}
+	return reg.RegisterSource(httpsource.New(httpsource.Options{Policy: opts.Outbound, Defaults: opts.QueryDefaults}))
 }

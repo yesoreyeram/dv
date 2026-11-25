@@ -213,9 +213,40 @@ can be measured.
 | I | An error boundary prints exception text that contains data or internals | The fallback shows fixed copy only; details go to the local console (NFR-AVAIL-004 AC2/AC3) | `ErrorBoundary.test.tsx` |
 | T | Resizing sets layout through inline styles, tempting a later change to loosen the CSP (`style-src 'unsafe-inline'`) | The splitter writes one CSS custom property through the CSSOM (`element.style.setProperty`), which `style-src 'self'` allows; the CSP scenarios run against Explore and the open palette | `csp.feature` |
 
+## F-15 HTTP connector, SSRF guard, connection secrets and jq selectors (FR-040, FR-071…FR-073, FR-079, NFR-SEC-005, NFR-SEC-020, NFR-SEC-021)
+
+Data flow: operator config `datasources[]` (`type: http`, `jsonData`, `secureJsonData`
+references) → secrets resolved at start-up into `plugin.SecureValues` → `POST
+/api/v1/query` names the instance and sends a query model (path, params, headers,
+pagination, selectors) → the request is built (auth applied last) → `netguard` client
+(dial-time IP check, TLS, timeouts, size cap) → upstream → page body decoded (depth and
+byte capped) → jq `rows`/`columns`/cursor selectors (step budget) → rows → frame (row and
+byte limits).
+
+| STRIDE | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| I/E | SSRF: a query or a malicious upstream steers dv to cloud metadata (`169.254.169.254`), loopback admin ports or the internal network | The IP check runs at dial time on every connection, after DNS, so rebinding and redirects are covered. It refuses the full list of special-purpose ranges, IPv4-mapped included. `outboundAllowedCidrs` exemptions are explicit and logged. Ambient `HTTP(S)_PROXY` is ignored. The query can only pick a path under the operator's `baseURL` (NFR-SEC-005, FR-040 AC2) | `netguard_test.go`, `http.feature` |
+| I | Credential exfiltration: pagination (`nextUrl`, `Link`) or a redirect points to an attacker host, and dv sends the token there | Next-page URLs must have the base origin and a path under the base path, or the query fails. A cross-host redirect drops auth headers. Auth is applied per request by the engine, only for the base origin (FR-072 AC5, NFR-SEC-020 AC2) | `httpsource_test.go`, `http.feature` |
+| T | Header or request splitting: CR/LF in a header value or parameter; a query overrides `Host`, `Authorization` or the API-key header | Token-only header names, no CR/LF/NUL in values, a deny-list of hop-by-hop and identity headers, no override of auth-owned names, and parameters URL-encoded by `net/url` (FR-040 AC4, NFR-SEC-020 AC4) | `httpsource_test.go` |
+| I | Secrets in config files, logs, responses or `executedQuery` | Only `{env}`/`{file}` references are accepted. Values are held in `SecureValues` (redacted by `fmt`/`slog`/JSON). Logged URLs and `executedQuery` drop the query string. Upstream bodies are never logged (FR-079, NFR-SEC-020 AC3) | `config_test.go`, `httpsource_test.go` |
+| D | Huge, slow or compressed (bomb) upstream responses; infinite pagination (cursor loops) | The body cap counts decompressed bytes. Timeouts cover connect, TLS, headers and the whole query. `maxPages` is ≤ 100, repeated cursors are detected, and the row and byte budgets stop paging early (FR-072 AC6, NFR-PERF-006) | `netguard_test.go`, `httpsource_test.go` |
+| D | Selector bombs: `[range(1e9)]`, deep recursion via `..`, exponential `reduce`, regex catastrophes | Step, output and depth budgets, context checks, RE2 regex, a 4 KiB expression limit, no `def` (NFR-SEC-021) | `jq` unit + fuzz tests |
+| T | Malformed JSON (deep nesting, huge numbers) crashes the decoder | The decoder bounds depth at 64 and keeps numbers as text (no overflow); the parser and decoder are fuzzed | `jq` fuzz tests |
+| S | TLS downgrade or a man in the middle | TLS 1.2 or later, verification always on, `http` only per instance by explicit opt-in, which logs a warning (NFR-SEC-005 AC7) | `netguard_test.go`, `config_test.go` |
+| I | Error messages leak upstream data, internal IPs or URLs with keys | Upstream errors map to fixed codes carrying only the status number. Guard errors name the range category only. Selector errors truncate quoted data to 40 characters (FR-040 AC5, FR-073 AC7) | `httpsource_test.go`, `jq_test.go` |
+| R | No record of which upstream was called | An outbound request log line carries request ID, uid, host, path, status, page and duration (NFR-OBS-005); the audit log follows in M3 | `httpsource_test.go` |
+
+Residual risks:
+- Before M3, anyone who can reach the (loopback-gated) query API can make dv call the
+  configured upstreams with the operator's credentials, at any path under `baseURL`.
+  Operators should provision read-only tokens and a narrow `baseURL` path.
+- A permitted upstream can return misleading data. dv shows the data but does not
+  attest it.
+
 ## Planned features (threats to model at implementation time)
 
 - **F-04 AuthN/RBAC (M3):** credential stuffing, session fixation, CSRF, privilege escalation, IDOR → Argon2id, rotating session IDs, SameSite=strict cookies + CSRF tokens, server-side RBAC, object-level checks.
 - **F-05 Secrets (M3):** key exposure, secrets in logs/responses → envelope encryption (AES-256-GCM, KEK from env/KMS), write-only API fields, slog redaction.
 - **F-06 SQL sources (M4):** SQL injection, expensive queries, data exfiltration → parameterized queries, read-only transactions, statement timeouts, row limits.
-- **F-07 REST/GraphQL sources (M5):** SSRF (cloud metadata, internal services, DNS rebinding) → dial-time IP checks, redirect re-validation, allow-lists, response size caps.
+- **F-07 OAuth2/JWT/SigV4/Entra ID/workload identity, GraphQL, async jobs (M5):** token endpoints through the SSRF guard; metadata endpoints only when allow-listed per instance; token caches per instance, in memory only; signed requests built after all headers are final; job cancellation on timeout.
+- **F-16 Transformation pipeline and joins (M8):** expression evaluation budgets, join cardinality explosion (bounded output), no data fetch from transforms.

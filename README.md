@@ -65,7 +65,8 @@ Defaults < JSON file (`DV_CONFIG_FILE`) < environment. Invalid configuration fai
 | `DV_QUERY_API_ALLOW_REMOTE` | `false` | Explicit opt-in to serve the query API on a non-loopback address without authentication; logs a warning. Anyone who can reach the port can read every exposed file root |
 | `DV_QUERY_TIMEOUT` | `30s` | Deadline of each query (max `10m`) |
 | `DV_QUERY_MAX_ROWS` / `DV_QUERY_MAX_BYTES` | `100000` / `33554432` | Host result limits per query; a query may lower `maxRows`, never raise it |
-| _(file only)_ `datasources` | `[]` | Provisioned data-source instances `[{"uid","type","name","jsonData"}]`, validated by their plugin at start-up. `secureJsonData` is refused until encrypted secrets ship (FR-022). Example: [`deploy/query-demo.json`](deploy/query-demo.json) |
+| _(file only)_ `datasources` | `[]` | Provisioned data-source instances `[{"uid","type","name","jsonData","secureJsonData"}]`, validated by their plugin at start-up. `secureJsonData` maps a secret name to a reference, `{"env": "VAR"}` or `{"file": "/abs/path"}`. A plain value fails start-up, and encrypted secrets come with FR-022 (FR-079). Example: [`deploy/query-demo.json`](deploy/query-demo.json) |
+| `DV_OUTBOUND_ALLOWED_CIDRS` | _(empty)_ | Comma-separated networks the `http` connector may reach although the SSRF guard blocks them (private, loopback, link-local, …; NFR-SEC-005 AC3). Exempting loopback or link-local logs a warning |
 
 JSON file keys use camelCase (`httpAddr`, `shutdownTimeout: "15s"`, …); unknown keys are rejected.
 
@@ -88,6 +89,26 @@ curl -s -H 'Content-Type: application/json' 127.0.0.1:8080/api/v1/query \
 
 Results are keyed by `refId`: `200` when every query succeeds, `207 Multi-Status` when only
 some do, each with its own `status` and a stable `error.code` (see `api/openapi.json`).
+
+### HTTP API connector (preview)
+
+The `http` source queries any JSON API (FR-040). The operator sets the base URL, the
+authentication method (`none`, `basic`, `bearer` or `apiKey`) and secret references. A
+query sets a path under the base URL, `params`, `headers`, `pagination` (`offset`, `page`,
+`cursor`, `nextUrl` or `linkHeader`), a jq `rows` selector and optional typed `columns`.
+Each request goes through the SSRF guard (NFR-SEC-005). `make run-query` also starts
+`bin/dv-mockapi`, a fake GitHub/Datadog/metrics API on `127.0.0.1:9090`:
+
+```bash
+curl -s -H 'Content-Type: application/json' 127.0.0.1:8080/api/v1/query -d '{"queries":[{"refId":"A",
+  "datasource":{"uid":"vendor-github"},"query":{"path":"/repos/acme/web/issues",
+  "params":[{"name":"per_page","value":"2"}],"pagination":{"type":"linkHeader"},
+  "rows":".[] | {number, title, author: .user.login}"}}]}'
+```
+
+The supported jq subset and its budgets are listed in FR-073; the connector catalogue,
+further authentication methods and vendor presets are planned (FR-070…FR-075,
+`docs/BACKLOG.md`).
 
 ## Development
 

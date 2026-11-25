@@ -13,3 +13,4 @@ immutable; supersede them with a new ADR instead of editing.
 | [0005](0005-observability.md) | Observability: slog now, OpenTelemetry seam | Accepted |
 | [0006](0006-testing-strategy.md) | Testing strategy: BDD first | Accepted |
 | [0007](0007-merge-automation.md) | Merge automation and dependency-update policy | Accepted |
+| [0008](0008-connection-and-integration-model.md) | Connection and integration model: one HTTP engine, presets, jq selectors, a frame pipeline | Accepted |

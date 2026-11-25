@@ -1,6 +1,45 @@
 {
   "queryApiEnabled": true,
+  "outboundAllowedCidrs": ["127.0.0.1/32"],
   "datasources": [
-    { "uid": "samples", "type": "file", "name": "Sample files", "jsonData": { "root": "samples" } }
+    { "uid": "samples", "type": "file", "name": "Sample files", "jsonData": { "root": "samples" } },
+    {
+      "uid": "vendor-github",
+      "type": "http",
+      "name": "GitHub (mock)",
+      "jsonData": {
+        "baseURL": "http://127.0.0.1:9090/api/github",
+        "allowInsecureHTTP": true,
+        "auth": { "type": "bearer" },
+        "headers": [{ "name": "Accept", "value": "application/vnd.github+json" }]
+      },
+      "secureJsonData": { "token": { "env": "DV_DEMO_GITHUB_TOKEN" } }
+    },
+    {
+      "uid": "vendor-datadog",
+      "type": "http",
+      "name": "Datadog (mock)",
+      "jsonData": {
+        "baseURL": "http://127.0.0.1:9090/api/datadog",
+        "allowInsecureHTTP": true,
+        "auth": {
+          "type": "apiKey",
+          "keys": [
+            { "in": "header", "name": "DD-API-KEY", "secret": "apiKey" },
+            { "in": "header", "name": "DD-APPLICATION-KEY", "secret": "appKey" }
+          ]
+        }
+      },
+      "secureJsonData": {
+        "apiKey": { "env": "DV_DEMO_DATADOG_API_KEY" },
+        "appKey": { "env": "DV_DEMO_DATADOG_APP_KEY" }
+      }
+    },
+    {
+      "uid": "vendor-metrics",
+      "type": "http",
+      "name": "Metrics API (mock)",
+      "jsonData": { "baseURL": "http://127.0.0.1:9090/api/metrics", "allowInsecureHTTP": true }
+    }
   ]
 }
