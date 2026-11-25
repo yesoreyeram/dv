@@ -133,7 +133,16 @@ Feature: Generic HTTP connector
       | {"path": "/github", "headers": [{"name": "Authorization", "value": "x"}]}  | may not be set            |
       | {"path": "/github", "headers": [{"name": "X-A", "value": "a\u000d\u000aHost: b"}]} | control character         |
       | {"path": "/github", "rows": "env.HOME"}                                    | not supported             |
-      | {"path": "/github", "rows": "[range(100000000)]"}                          | evaluation budget         |
+
+  Scenario: A selector that exceeds its evaluation budget is refused, not run unbounded
+    Given an http connection "te" to the fake upstream with no authentication
+    When I run the http query on "te":
+      """
+      {"path": "/echo", "rows": "[range(100000000)]"}
+      """
+    Then the query result status is 400
+    And the query error code is "invalid_query"
+    And the query error mentions "evaluation budget"
 
   Scenario: Upstream authentication failures are reported without upstream details
     Given an http connection "gh" to the fake upstream with bearer token from env "DV_TEST_GH_TOKEN" set to "wrong"
@@ -152,7 +161,7 @@ Feature: Generic HTTP connector
       {"path": "/echo", "params": [{"name": "from", "value": "${__from}"}, {"name": "to", "value": "${__to:iso}"}]}
       """
     Then the query result status is 200
-    And the result frame field "from" has values "1761955200000"
+    And the result frame field "from" has values "1793491200000"
     And the result frame field "to" has values "2026-11-02T00:00:00Z"
 
   Scenario: Plain-text secrets in the provisioning file fail start-up

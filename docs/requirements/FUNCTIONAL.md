@@ -752,7 +752,7 @@ language (ADR-0008).
 - AC3 (excluded): the language does not offer `env`, `$ENV`, `input`, `inputs`,
   `debug`, `stderr`, `input_filename`, `$__loc__`, `def`, `foreach`, `label`/`break`,
   `getpath`/`setpath`/`paths`, string interpolation, `@format` strings, `?//`,
-  destructuring, `now` or `halt`.
+  destructuring, assignment operators (`=`, `|=`, `+=` and so on), `now` or `halt`.
   Any of these is a parse error that names the construct and its position.
 - AC4 (semantics): results match jq 1.7 for the supported subset. Object key order is
   kept from input and construction. Numbers keep their JSON text until arithmetic, so
