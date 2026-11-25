@@ -277,7 +277,7 @@ func (s *Service) run(ctx context.Context, q Item, tr plugin.TimeRange, grant in
 	src, err := s.sources.Source(in.Type)
 	if err == nil {
 		var out *frame.Result
-		out, err = src.Query(qctx, plugin.Query{RefID: q.RefID, Source: in.config(), Body: q.Query, TimeRange: tr, Limits: limits})
+		out, err = safeQuery(qctx, src, plugin.Query{RefID: q.RefID, Source: in.config(), Body: q.Query, TimeRange: tr, Limits: limits})
 		if err == nil {
 			frames := []*frame.Frame{}
 			if out != nil && out.Frames != nil {
@@ -318,6 +318,21 @@ func (s *Service) logQuery(ctx context.Context, q Item, in Instance, res *Result
 		attrs = append(attrs, "error", err.Error())
 	}
 	s.log.InfoContext(ctx, "query executed", attrs...)
+}
+
+// errPanic marks a recovered plugin panic; it maps to a generic 500 (NFR-SEC-012).
+var errPanic = errors.New("query panicked")
+
+// safeQuery runs the plugin and turns a panic into an error, so a plugin defect fails
+// one query instead of terminating the server: query workers are goroutines outside the
+// HTTP handler's recovery middleware (NFR-SEC-012).
+func safeQuery(ctx context.Context, src plugin.Source, q plugin.Query) (out *frame.Result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, fmt.Errorf("%w: %v", errPanic, r)
+		}
+	}()
+	return src.Query(ctx, q)
 }
 
 func failure(status int, code, msg string) Result {

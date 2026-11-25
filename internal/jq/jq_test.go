@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func run(t *testing.T, expr, input string, lim Limits) ([]string, error) {
@@ -294,6 +295,94 @@ func TestBudgets(t *testing.T) {
 		_, err := run(t, c.expr, `[1,2,3]`, c.lim)
 		if !errors.Is(err, ErrBudget) {
 			t.Errorf("%s: err = %v, want ErrBudget", c.expr, err)
+		}
+	}
+}
+
+// Codex P1 on #33: a NaN slice bound must not reach the integer conversion (it panicked
+// with "slice bounds out of range").
+func TestNonFiniteIndexAndSliceBounds(t *testing.T) {
+	for expr, want := range map[string]string{
+		"[1,2][(-1 | sqrt):]":           "[1,2]",
+		"[1,2][:(-1 | sqrt)]":           "[]",
+		"\"abc\"[(-1 | sqrt):]":         `"abc"`,
+		"[1,2][(1e1000):]":              "[]",
+		"[1,2][:(-1e1000)]":             "[]",
+		"[1,2][(-1 | sqrt)]":            "null",
+		"[1,2][1e1000]":                 "null",
+		"[1,2][-1e1000]":                "null",
+		"[1,2] | .[(-1e1000):(1e1000)]": "[1,2]",
+	} {
+		got, err := run(t, expr, `null`, Limits{})
+		if err != nil || strings.Join(got, " | ") != want {
+			t.Errorf("%s = %v, %v; want %s", expr, got, err, want)
+		}
+	}
+}
+
+// Codex P1 on #33: values that share subtrees grow exponentially while costing few
+// steps; every walk over them must be bounded by the budget and the context.
+func TestSharedSubtreeBombsAreBounded(t *testing.T) {
+	for _, expr := range []string{
+		"reduce range(0;40) as $i (0; [.,.])",
+		"reduce range(0;40) as $i (0; {a: ., b: .})",
+		"reduce range(0;60) as $i ([0]; . + .)",
+		"reduce range(0;30) as $i (0; [.,.]) | tojson",
+		"[limit(30; repeat_)]",
+	} {
+		p, err := Compile(expr)
+		if err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		start := time.Now()
+		err = p.Run(ctx, nil, Limits{MaxSteps: 1000}, func(any) error { return nil })
+		cancel()
+		if !errors.Is(err, ErrBudget) {
+			t.Errorf("%s: err = %v, want ErrBudget", expr, err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("%s took %v", expr, d)
+		}
+	}
+	// Shared subtrees inside the size budget still work.
+	got, err := run(t, "reduce range(0;10) as $i (0; [.,.]) | tojson | length", `null`, Limits{})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("small shared value: %v %v", got, err)
+	}
+	// Comparing large values costs steps.
+	if _, err := run(t, "[range(5000)] as $a | [range(100)] | map($a == $a)", `null`, Limits{MaxSteps: 50_000}); !errors.Is(err, ErrBudget) {
+		t.Fatalf("deep comparisons are not charged: %v", err)
+	}
+}
+
+// Codex P1 on #34: the measurement memo must not keep every discarded intermediate
+// alive, and linear built-ins must cost steps.
+func TestMemoRetentionIsBounded(t *testing.T) {
+	p, err := Compile("reduce range(1000) as $i ([range(10000)]; reverse + null) | length")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.All(context.Background(), nil, Limits{}); !errors.Is(err, ErrBudget) {
+		t.Fatalf("10 million element copies ran within the default budget: %v", err)
+	}
+	m := &machine{ctx: context.Background(), lim: Limits{MaxSteps: 1 << 30}.withDefaults()}
+	for i := 0; i < 200; i++ {
+		a := make([]any, 10000)
+		if err := m.bound(a); err != nil {
+			t.Fatal(err)
+		}
+		if m.retained > maxRetained {
+			t.Fatalf("memo retains %d elements, bound is %d", m.retained, maxRetained)
+		}
+	}
+	for _, expr := range []string{
+		"[range(100000)] as $a | reduce range(100) as $i (0; $a | .[1:] | length)",
+		"[range(100000)] as $a | reduce range(100) as $i (0; $a | any | not)",
+		"([range(1000)] | map(tostring) | join(\"\")) as $s | reduce range(10000) as $i (0; $s | ascii_upcase | length)",
+	} {
+		if _, err := run(t, expr, `null`, Limits{}); !errors.Is(err, ErrBudget) {
+			t.Errorf("%s: err = %v, want ErrBudget", expr, err)
 		}
 	}
 }

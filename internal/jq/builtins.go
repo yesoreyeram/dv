@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"regexp"
 	"sort"
 	"strconv"
@@ -72,9 +73,13 @@ func (m *machine) call(n funcall, in any, e *env, out emitFn) error {
 	return f(m, n, in, e, out)
 }
 
-// simple defines a 0-arity function of its input.
+// simple defines a 0-arity function of its input. One pass over the input is charged
+// up front, so linear built-ins (reverse, any, ascii_downcase, …) cost steps.
 func simple(name string, f func(m *machine, in any) (any, error)) {
 	def(name, 0, func(m *machine, _ funcall, in any, _ *env, out emitFn) error {
+		if err := m.step(linearCost(in)); err != nil {
+			return err
+		}
 		v, err := f(m, in)
 		if err != nil {
 			return err
@@ -88,6 +93,9 @@ func simple(name string, f func(m *machine, in any) (any, error)) {
 func withArg(name string, f func(m *machine, in, arg any) (any, error)) {
 	def(name, 1, func(m *machine, n funcall, in any, e *env, out emitFn) error {
 		return m.eval(n.args[0], in, e, func(a any) error {
+			if err := m.step(linearCost(in) + linearCost(a)); err != nil {
+				return err
+			}
 			v, err := f(m, in, a)
 			if err != nil {
 				return err
@@ -192,6 +200,9 @@ func init() {
 		return nil, rtErr("Cannot check whether %s has a %s key", typeName(in), typeName(k))
 	})
 	withArg("contains", func(m *machine, in, b any) (any, error) {
+		if err := m.chargeSize(in, b); err != nil {
+			return nil, err
+		}
 		if typeName(in) != typeName(b) {
 			return nil, rtErr("%s and %s cannot have their containment checked", describe(in), describe(b))
 		}
@@ -423,7 +434,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		if err := m.step(len(a)); err != nil {
+		if err := m.chargeSorting(a); err != nil {
 			return nil, err
 		}
 		out := append([]any{}, a...)
@@ -436,7 +447,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			if err := m.step(len(a)); err != nil {
+			if err := m.chargeSorting(a); err != nil {
 				return err
 			}
 			items := make([]keyed, len(a))
@@ -502,7 +513,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		if err := m.step(len(a)); err != nil {
+		if err := m.chargeSorting(a); err != nil {
 			return nil, err
 		}
 		s := append([]any{}, a...)
@@ -516,9 +527,12 @@ func init() {
 		return out, nil
 	})
 	minMax := func(name string, wantMax bool) {
-		simple(name, func(_ *machine, in any) (any, error) {
+		simple(name, func(m *machine, in any) (any, error) {
 			a, err := asArray(name+"-ed", in)
 			if err != nil {
+				return nil, err
+			}
+			if err := m.chargeSize(in); err != nil {
 				return nil, err
 			}
 			if len(a) == 0 {
@@ -908,6 +922,16 @@ func init() {
 	})
 }
 
+// chargeSorting charges a sort of a by its expanded size times log2 of its length, an
+// upper bound on the comparison work.
+func (m *machine) chargeSorting(a []any) error {
+	s, _, err := m.measure(a)
+	if err != nil {
+		return err
+	}
+	return m.step(s * (bits.Len(uint(len(a))) + 1))
+}
+
 type keyed struct {
 	key []any
 	val any
@@ -935,6 +959,14 @@ func (m *machine) limit(k int, f node, in any, e *env, out emitFn) error {
 }
 
 func (m *machine) toJSON(v any) (any, error) {
+	// Charge the expanded size first, so a value with shared subtrees cannot make the
+	// encoder do unbounded work before the step budget sees it.
+	if err := m.bound(v); err != nil {
+		return nil, err
+	}
+	if err := m.chargeSize(v); err != nil {
+		return nil, err
+	}
 	var b bytes.Buffer
 	if err := AppendJSON(&b, v, m.lim.MaxDepth); err != nil {
 		return nil, fmt.Errorf("%w (value nests more than %d levels)", ErrBudget, m.lim.MaxDepth)

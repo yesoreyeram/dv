@@ -762,6 +762,15 @@ language (ADR-0008).
   - Expressions are at most 4 096 bytes with nesting of 64 or less.
   - Evaluation is limited to 1 000 000 steps per page, 100 000 outputs and a value depth
     of 64.
+  - Every value a program builds or outputs has at most 1 048 576 nodes when expanded.
+    Shared subtrees count each time they appear, so `reduce range(40) as $i (0; [.,.])`
+    stops instead of growing exponentially. Encoding, deep comparison, sorting, `min`,
+    `max` and `contains` are charged steps in proportion to the expanded size of their
+    operands. Built-ins and slices that make one pass over their input are charged steps
+    per element (per 16 bytes for strings). Bookkeeping for these limits keeps at most
+    1 048 576 container elements alive, so discarded intermediate values can be freed.
+  - Non-finite numbers (NaN, ±infinity) used as indices or slice bounds act like null or
+    are clamped; they never reach an integer conversion.
   - `range` and `limit` are counted against the steps.
   - The context is checked every 1 024 steps.
   - Exceeding a budget is `400 invalid_query` ("selector exceeded its evaluation
