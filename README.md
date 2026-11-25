@@ -103,5 +103,5 @@ make help      # everything else
 ```
 
 Specifications live in [`features/`](features) (Gherkin) and
-[`docs/requirements/`](docs/requirements). Planning: [roadmap](docs/ROADMAP.md),
+[`docs/requirements/`](docs/requirements). Planning: [roadmap](docs/ROADMAP.md), [production readiness](docs/PRODUCTION_READINESS.md),
 [backlog](docs/BACKLOG.md), [run log](docs/RUNLOG.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
