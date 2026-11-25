@@ -140,12 +140,13 @@ func (e *passErr) Error() string { return e.err.Error() }
 func (e *passErr) Unwrap() error { return e.err }
 
 type machine struct {
-	ctx     context.Context
-	lim     Limits
-	steps   int
-	outputs int
-	slices  map[sliceKey]measured
-	objects map[*Object]measured
+	ctx      context.Context
+	lim      Limits
+	steps    int
+	outputs  int
+	slices   map[sliceKey]measured
+	objects  map[*Object]measured
+	retained int // container elements the measurement memo keeps alive
 }
 
 type emitFn func(any) error
@@ -227,6 +228,9 @@ func (m *machine) eval(n node, in any, e *env, out emitFn) error {
 				return m.optEval(n.from, in, e, func(from any) error {
 					v, err := sliceValue(t, from, to)
 					if err != nil {
+						return err
+					}
+					if err := m.step(linearCost(v)); err != nil {
 						return err
 					}
 					return out(v)

@@ -356,6 +356,37 @@ func TestSharedSubtreeBombsAreBounded(t *testing.T) {
 	}
 }
 
+// Codex P1 on #34: the measurement memo must not keep every discarded intermediate
+// alive, and linear built-ins must cost steps.
+func TestMemoRetentionIsBounded(t *testing.T) {
+	p, err := Compile("reduce range(1000) as $i ([range(10000)]; reverse + null) | length")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.All(context.Background(), nil, Limits{}); !errors.Is(err, ErrBudget) {
+		t.Fatalf("10 million element copies ran within the default budget: %v", err)
+	}
+	m := &machine{ctx: context.Background(), lim: Limits{MaxSteps: 1 << 30}.withDefaults()}
+	for i := 0; i < 200; i++ {
+		a := make([]any, 10000)
+		if err := m.bound(a); err != nil {
+			t.Fatal(err)
+		}
+		if m.retained > maxRetained {
+			t.Fatalf("memo retains %d elements, bound is %d", m.retained, maxRetained)
+		}
+	}
+	for _, expr := range []string{
+		"[range(100000)] as $a | reduce range(100) as $i (0; $a | .[1:] | length)",
+		"[range(100000)] as $a | reduce range(100) as $i (0; $a | any | not)",
+		"([range(1000)] | map(tostring) | join(\"\")) as $s | reduce range(10000) as $i (0; $s | ascii_upcase | length)",
+	} {
+		if _, err := run(t, expr, `null`, Limits{}); !errors.Is(err, ErrBudget) {
+			t.Errorf("%s: err = %v, want ErrBudget", expr, err)
+		}
+	}
+}
+
 func TestCancellation(t *testing.T) {
 	p, err := Compile("[range(10000000)]")
 	if err != nil {

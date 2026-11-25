@@ -73,9 +73,13 @@ func (m *machine) call(n funcall, in any, e *env, out emitFn) error {
 	return f(m, n, in, e, out)
 }
 
-// simple defines a 0-arity function of its input.
+// simple defines a 0-arity function of its input. One pass over the input is charged
+// up front, so linear built-ins (reverse, any, ascii_downcase, …) cost steps.
 func simple(name string, f func(m *machine, in any) (any, error)) {
 	def(name, 0, func(m *machine, _ funcall, in any, _ *env, out emitFn) error {
+		if err := m.step(linearCost(in)); err != nil {
+			return err
+		}
 		v, err := f(m, in)
 		if err != nil {
 			return err
@@ -89,6 +93,9 @@ func simple(name string, f func(m *machine, in any) (any, error)) {
 func withArg(name string, f func(m *machine, in, arg any) (any, error)) {
 	def(name, 1, func(m *machine, n funcall, in any, e *env, out emitFn) error {
 		return m.eval(n.args[0], in, e, func(a any) error {
+			if err := m.step(linearCost(in) + linearCost(a)); err != nil {
+				return err
+			}
 			v, err := f(m, in, a)
 			if err != nil {
 				return err

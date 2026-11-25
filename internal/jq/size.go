@@ -11,6 +11,13 @@ import (
 // keyed by identity keeps every later walk (encoding, depth checks, comparisons) bounded.
 const MaxValueNodes = 1 << 20
 
+// maxRetained bounds how many container elements the measurement memo keeps alive. The
+// memo holds references so an address cannot be reused while it is cached; without a
+// bound, a loop that replaces a large value would keep every discarded copy alive
+// (Codex P1 on #34). When the bound would be passed the memo is dropped and rebuilt on
+// demand; rebuilding costs steps again, so the step budget still bounds the work.
+const maxRetained = 1 << 20
+
 type sliceKey struct {
 	p uintptr
 	n int
@@ -46,6 +53,7 @@ func (m *machine) measure(v any) (size, depth int, err error) {
 			size = min(size+s, MaxValueNodes+1)
 			depth = max(depth, d+1)
 		}
+		m.retain(len(t))
 		if m.slices == nil {
 			m.slices = map[sliceKey]measured{}
 		}
@@ -67,6 +75,7 @@ func (m *machine) measure(v any) (size, depth int, err error) {
 			size = min(size+s, MaxValueNodes+1)
 			depth = max(depth, d+1)
 		}
+		m.retain(t.Len())
 		if m.objects == nil {
 			m.objects = map[*Object]measured{}
 		}
@@ -74,6 +83,29 @@ func (m *machine) measure(v any) (size, depth int, err error) {
 		return size, depth, nil
 	}
 	return 1, 0, nil
+}
+
+// retain accounts for n more elements kept alive by the memo, dropping the memo first
+// when the bound would be passed.
+func (m *machine) retain(n int) {
+	if m.retained+n > maxRetained {
+		m.slices, m.objects, m.retained = nil, nil, 0
+	}
+	m.retained += n
+}
+
+// linearCost is the work of one pass over v: elements of an array or object, or bytes
+// of a string in 16-byte units.
+func linearCost(v any) int {
+	switch t := v.(type) {
+	case []any:
+		return len(t)
+	case *Object:
+		return t.Len()
+	case string:
+		return len(t) / 16
+	}
+	return 0
 }
 
 // bound fails when v is larger or deeper than the budgets allow.
