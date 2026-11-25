@@ -78,7 +78,7 @@ func (p *Program) Run(ctx context.Context, input any, lim Limits, emit func(any)
 		if m.outputs > m.lim.MaxOutputs {
 			return fmt.Errorf("%w (more than %d outputs)", ErrBudget, m.lim.MaxOutputs)
 		}
-		if err := checkDepth(v, m.lim.MaxDepth); err != nil {
+		if err := m.bound(v); err != nil {
 			return err
 		}
 		return emit(v)
@@ -114,34 +114,6 @@ func (p *Program) First(ctx context.Context, input any, lim Limits) (v any, ok b
 	return v, ok, err
 }
 
-func checkDepth(v any, max int) error {
-	var walk func(v any, d int) error
-	walk = func(v any, d int) error {
-		switch t := v.(type) {
-		case []any:
-			if d >= max {
-				return fmt.Errorf("%w (value nests more than %d levels)", ErrBudget, max)
-			}
-			for _, e := range t {
-				if err := walk(e, d+1); err != nil {
-					return err
-				}
-			}
-		case *Object:
-			if d >= max {
-				return fmt.Errorf("%w (value nests more than %d levels)", ErrBudget, max)
-			}
-			for _, k := range t.keys {
-				if err := walk(t.m[k], d+1); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	return walk(v, 0)
-}
-
 type env struct {
 	name string
 	val  any
@@ -172,6 +144,8 @@ type machine struct {
 	lim     Limits
 	steps   int
 	outputs int
+	slices  map[sliceKey]measured
+	objects map[*Object]measured
 }
 
 type emitFn func(any) error
@@ -348,6 +322,11 @@ func (m *machine) eval(n node, in any, e *env, out emitFn) error {
 				if err != nil {
 					return err
 				}
+				if n.op == "+" || n.op == "*" || n.op == "-" {
+					if err := m.bound(v); err != nil {
+						return err
+					}
+				}
 				return out(v)
 			})
 		})
@@ -370,6 +349,9 @@ func (m *machine) eval(n node, in any, e *env, out emitFn) error {
 			}); err != nil {
 				return err
 			}
+		}
+		if err := m.bound(arr); err != nil {
+			return err
 		}
 		return out(arr)
 	case objectCon:
@@ -451,6 +433,9 @@ func (m *machine) recurse(v any, depth int, out emitFn) error {
 
 func (m *machine) buildObject(entries []objEntry, i int, acc *Object, in any, e *env, out emitFn) error {
 	if i == len(entries) {
+		if err := m.bound(acc); err != nil {
+			return err
+		}
 		return out(acc)
 	}
 	ent := entries[i]
@@ -491,7 +476,7 @@ func indexValue(t, k any) (any, error) {
 	case []any:
 		if isNumber(k) {
 			f := toFloat(k)
-			if math.IsNaN(f) {
+			if math.IsNaN(f) || math.IsInf(f, 0) || math.Abs(f) > 1e15 {
 				return nil, nil
 			}
 			i := int(math.Floor(f))
@@ -523,6 +508,9 @@ func sliceIndex(v any, n int) (int, error) {
 		return 0, rtErr("Start and end indices of an array slice must be numbers")
 	}
 	f := math.Floor(toFloat(v))
+	if math.IsNaN(f) {
+		f = 0 // a NaN bound must never reach the integer conversion below
+	}
 	if f < 0 {
 		f += float64(n)
 	}
@@ -570,6 +558,12 @@ func sliceValue(t, from, to any) (any, error) {
 }
 
 func (m *machine) binop(op string, l, r any) (any, error) {
+	switch op {
+	case "==", "!=", "<", "<=", ">", ">=":
+		if err := m.chargeSize(l, r); err != nil {
+			return nil, err
+		}
+	}
 	switch op {
 	case "==":
 		return compare(l, r) == 0, nil
