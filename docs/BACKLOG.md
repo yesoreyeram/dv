@@ -81,3 +81,20 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-084 | Workspace UI follow-ups: route-level code splitting, toast notifications, visual regression snapshots for the frame, user menu and session-expiry handling (with B-023), preferences stored per user once accounts exist, sidebar sections for saved items (M6) | M3/M6 | FR-005, FR-008, NFR-PERF-004 | Todo |
 | B-085 | TypeScript 7: typescript-eslint 8.x refuses TS 7.0 (Dependabot #26 red on `e2e lint`). Pin `typescript` to 6.x and add a Dependabot/Renovate ignore for the 7.x major until typescript-eslint supports it, or run lint against the TS 6 compatibility API; record the choice in an ADR note | M0 | NFR-MAINT-007, NFR-MAINT-008 | Todo |
 | B-086 | Merge bot: GitHub can report a finished check run as `in_progress` while it already has a `conclusion` and `completed_at` (seen on #30, 2026-11-23), so the bot skips a green PR until CI is re-run. Treat such a run as finished, or retry the decision once after a short wait; requirement + `automerge` scenario first | M0 | NFR-MAINT-006 | Todo |
+| B-087 | Connections slice 1: requirements (FR-040, FR-070…FR-079, NFR-SEC-005/020/021, …), ADR-0008, threat model F-15, research; `internal/netguard` SSRF guard; `internal/jq` sandboxed jq subset; `http` source with none/basic/bearer/apiKey auth and offset/page/cursor/nextUrl/linkHeader pagination; secrets by `{env}`/`{file}` reference; `cmd/dv-mockapi`; Explore JSON query editor for non-file sources | M5 | FR-040, FR-071 AC1–AC4/AC11, FR-072, FR-073, FR-079, NFR-SEC-005/020/021, NFR-OBS-005, NFR-MAINT-009 | In review (PR from `feat/http-connector`) |
+| B-088 | Connector catalogue: `GET /api/v1/connectors` + Data sources page tiles grouped by category with search and status badges | M5 | FR-070 | Todo |
+| B-089 | OAuth2 client credentials (secret and private-key JWT) + token cache; JWT bearer grant (Google service account, GitHub App) | M5 | FR-071 AC5/AC6 | Todo |
+| B-090 | AWS SigV4 (static, AssumeRole, web identity) | M5 | FR-071 AC7/AC9 | Todo |
+| B-091 | Microsoft Entra ID: client secret, certificate, managed identity, workload identity federation | M5 | FR-071 AC8/AC9 | Todo |
+| B-092 | GCP workload identity federation (STS external account) + metadata server, explicitly allow-listed | M5 | FR-071 AC9, NFR-SEC-005 AC3 | Todo |
+| B-093 | mTLS client certificates from secret references | M5 | FR-071 AC10 | Todo |
+| B-094 | Presets wave 1 with recorded fixtures: GitHub, Sentry, Vercel, Datadog, Dynatrace, ThousandEyes, Cloudflare, Prometheus, Loki | M5 | FR-075, NFR-MAINT-009 | Todo |
+| B-095 | Presets wave 2: Azure Monitor, Google Cloud Monitoring, AWS CloudWatch, New Relic (NerdGraph), AppDynamics, Splunk, Elasticsearch/OpenSearch, Tempo, Jaeger, ClickHouse HTTP | M5 | FR-075, FR-041, FR-077 | Todo (needs B-089…B-092, B-096, B-097) |
+| B-096 | Async job APIs (start → poll → read, cancel upstream) | M5 | FR-077 | Todo |
+| B-097 | GraphQL connector (variables, `pageInfo` cursor, `errors[]`) | M5 | FR-041 | Todo |
+| B-098 | JSONata selector behind the same budget interface | M5 | FR-074, NFR-SEC-021 | Todo |
+| B-099 | Transformation pipeline v1 (filter, select/rename, compute, convert, sort, limit, groupBy) server-side + Explore step list | M8 | FR-076 | Todo |
+| B-100 | Joins (inner/left/outer, by time) and unions across refIds | M8 | FR-078 | Todo |
+| B-101 | Explore structured HTTP editor: parameter and header tables, pagination form, selector preview with the first page | M5 | FR-040, FR-018 | Todo |
+| B-102 | Upstream retries (`Retry-After` ≤ 5 s, idempotent GET), per-instance circuit breaker | M5 | NFR-AVAIL-005 | Todo |
+| B-103 | Non-JSON API responses (CSV/NDJSON/XML) by explicit `format`, reusing format plugins | M5 | FR-040 AC5, FR-060 | Todo |
