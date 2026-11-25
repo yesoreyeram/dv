@@ -766,7 +766,9 @@ language (ADR-0008).
     Shared subtrees count each time they appear, so `reduce range(40) as $i (0; [.,.])`
     stops instead of growing exponentially. Encoding, deep comparison, sorting, `min`,
     `max` and `contains` are charged steps in proportion to the expanded size of their
-    operands.
+    operands. Built-ins and slices that make one pass over their input are charged steps
+    per element (per 16 bytes for strings). Bookkeeping for these limits keeps at most
+    1 048 576 container elements alive, so discarded intermediate values can be freed.
   - Non-finite numbers (NaN, ±infinity) used as indices or slice bounds act like null or
     are clamped; they never reach an integer conversion.
   - `range` and `limit` are counted against the steps.
