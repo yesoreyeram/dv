@@ -407,3 +407,13 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
   - benchmark: 10 pages × 1 000 rows in about 115 ms.
 - Not done in this slice (honest scope): OAuth2, JWT, SigV4, Entra ID, workload identity federation, mTLS (B-089…B-093), the connector catalogue (B-088), vendor presets (B-094/B-095), JSONata (B-098), GraphQL (B-097), async jobs (B-096), transforms and joins (B-099/B-100), retries (B-102). HTTP queries record only the data source and path in Explore history.
 - Next: B-088 connector catalogue, then B-089 OAuth2 and B-094 presets wave 1.
+- 2026-11-25 ~22:35 UTC follow-up: Codex raised two P1 findings on #33, and both were reproduced first.
+  - `[1,2][(-1|sqrt):]` panicked: a NaN slice bound reached an integer conversion.
+  - `reduce range(40) as $i (0; [.,.])` builds an exponentially large value that shares its subtrees; the unbudgeted depth walk over it hung for more than 60 s against a 2 s deadline.
+  - Requirements first (6213392): FR-073 AC5 and NFR-SEC-012.
+  - Fixed in 22d73f1:
+    - non-finite bounds are clamped;
+    - values are measured once per identity, step-charged and capped at 1 048 576 expanded nodes and depth 64;
+    - whole-value walks are charged by expanded size;
+    - a plugin panic in a query worker becomes `500 query_failed`.
+  - Evidence: `go test -race` and Go BDD all ok; golangci-lint v2.15.0: 0 issues; 20 s fuzz run clean.
