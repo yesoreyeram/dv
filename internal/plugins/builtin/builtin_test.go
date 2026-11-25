@@ -17,7 +17,7 @@ func TestRegister(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := reg.Catalog()
-	if len(c.Sources) != 1 || c.Sources[0].ID != "file" || !sameIDs(c.Formats, "csv", "json", "ndjson", "tsv") {
+	if len(c.Sources) != 2 || c.Sources[0].ID != "file" || c.Sources[1].ID != "http" || !sameIDs(c.Formats, "csv", "json", "ndjson", "tsv") {
 		t.Fatalf("catalog = %+v", c)
 	}
 	// Registering twice fails on the duplicate format.

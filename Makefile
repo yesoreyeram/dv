@@ -26,8 +26,9 @@ deps: ## Install Go modules and pnpm dependencies
 .PHONY: build build-go build-web
 build: build-web build-go ## Build the SPA and the server binary (bin/dv)
 
-build-go: ## Build the server binary
+build-go: ## Build the server binary (and the dv-mockapi fixture server)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/dv ./cmd/dv
+	CGO_ENABLED=0 go build -trimpath -o bin/dv-mockapi ./cmd/dv-mockapi
 
 build-web: ## Build the SPA into web/dist
 	pnpm --filter web run build
@@ -37,8 +38,12 @@ build-web: ## Build the SPA into web/dist
 run: build ## Build and run the single binary serving API + UI on $(ADDR)
 	DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text DV_FILE_ROOTS=$(FILE_ROOTS) ./bin/dv
 
-run-query: build ## Like run, plus the loopback-only query API over deploy/samples (FR-016, deploy/query-demo.json)
-	DV_CONFIG_FILE=deploy/query-demo.json DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text DV_FILE_ROOTS=$(FILE_ROOTS) ./bin/dv
+# Fixture credentials of cmd/dv-mockapi (internal/mockapi.DefaultTokens); not secrets.
+DEMO_SECRETS := DV_DEMO_GITHUB_TOKEN=s3cr3t-token DV_DEMO_DATADOG_API_KEY=dd-api-key DV_DEMO_DATADOG_APP_KEY=demo-app-key
+
+run-query: build ## Like run, plus the loopback-only query API over deploy/samples and mock vendor APIs on 127.0.0.1:9090 (FR-016, FR-040, deploy/query-demo.json)
+	@trap 'kill 0' EXIT; ./bin/dv-mockapi -addr 127.0.0.1:9090 & \
+	$(DEMO_SECRETS) DV_CONFIG_FILE=deploy/query-demo.json DV_HTTP_ADDR=$(ADDR) DV_WEB_DIR=web/dist DV_LOG_FORMAT=text DV_FILE_ROOTS=$(FILE_ROOTS) ./bin/dv
 
 dev: ## Run the API (go run) and the Vite dev server with HMR (proxying /api)
 	@trap 'kill 0' EXIT; \

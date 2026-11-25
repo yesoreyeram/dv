@@ -381,3 +381,29 @@ Each automated run appends an entry: date/time (UTC), plan, what shipped, PR lin
 - #23: rebased onto `main` at f95029a (no conflicts, tree unchanged). On the rebased head: ESLint/tsc/Prettier clean, Vitest 320/320, build and bundle budget pass (130.9 KB gzip), `pnpm audit` clean, UI BDD 70/70 (run with local Chromium build 1243), `go test -race` ok except `test/bdd` (godog cannot be downloaded here). CI is green on 85cbfe3.
 - #26 still waits on B-085 (keep TypeScript 6 and ignore the 7.x major until typescript-eslint supports it).
 - Blocker for the owner: while #23 is held, the "no other open PRs" rule stops every new feature PR. Removing `hold` (or closing #23) unblocks B-085, B-086 and M3 (B-022 storage layer).
+
+## 2026-11-25 ~21:00–22:30 UTC — owner request: connections and integrations; requirements plus the first slice (PR from `feat/http-connector`)
+- Context: the owner merged #23 and asked for versatile connections (Azure Monitor, Google Cloud Monitoring, CloudWatch, Datadog, Splunk, Dynatrace, AppDynamics, Sentry, GitHub, Vercel, New Relic, ThousandEyes, …), responses turned into tables with jq/JSONata, join/transform/filter, and API pagination. The requirements come first, then implementation. Open PRs: only Dependabot #26 (TypeScript 7, blocked by B-085).
+- Market research: `docs/research/CONNECTORS.md` covers 20+ target APIs (auth, pagination, response shapes) and how Grafana Infinity, Datadog/New Relic integrations, Power Query, Looker, Airbyte's declarative CDK and Steampipe approach the problem.
+- Requirements first, in a separate commit (a8ba265):
+  - FR-040 rewritten;
+  - new FR-070…FR-079: catalogue, auth methods, pagination, jq, JSONata, presets, transformation pipeline, async jobs, joins, secrets by reference;
+  - NFR-SEC-005 expanded (AC1–AC8); new NFR-SEC-020/021, NFR-PERF-006, NFR-AVAIL-005, NFR-OBS-005, NFR-MAINT-009;
+  - ADR-0008, threat model F-15, `features/connectors/http.feature`;
+  - roadmap M5 rescoped and M8 added; backlog B-087…B-103.
+- Shipped:
+  - `internal/netguard`: dial-time SSRF guard covering every special-purpose range, IPv4-mapped addresses unmapped first; operator CIDR exemptions; no ambient proxy; TLS 1.2 or later; a body cap that counts decompressed bytes.
+  - `internal/jq`: sandboxed jq 1.7 subset with no new dependency (the reason is in ADR-0008). It has step, output and depth budgets, ordered objects and exact large integers, and is fuzzed.
+  - `http` source: none, basic, bearer and apiKey auth; offset, page, cursor (with `cursorOnly` and a body path), nextUrl and linkHeader pagination (with Sentry's `results`), each bounded by budgets; next-page URLs must stay at the base origin; a redirect to another origin drops credentials.
+  - Secrets: `secureJsonData` accepts only `{env}`/`{file}` references; `outboundAllowedCidrs` exemptions.
+  - Error kinds: `internal/plugin` errors map to 403/404/413/415/429/502 codes.
+  - `cmd/dv-mockapi` with fixtures; the Explore form for HTTP connections (method, path, jq rows, a JSON options box).
+- Evidence:
+  - `go test -race ./...` all ok;
+  - Go BDD, all suites green: connectors 19/19, api 29, repo 86, sources 53, core 6, query 64. godog cannot be downloaded here, so a local API-compatible godog stub ran them; it is not committed, and CI runs the real godog.
+  - golangci-lint v2.15.0: 0 issues;
+  - Vitest 337/337; UI BDD 75/75 (5 new);
+  - ESLint, tsc and Prettier clean; `pnpm audit` clean; bundle 132.0 KB gzip;
+  - benchmark: 10 pages × 1 000 rows in about 115 ms.
+- Not done in this slice (honest scope): OAuth2, JWT, SigV4, Entra ID, workload identity federation, mTLS (B-089…B-093), the connector catalogue (B-088), vendor presets (B-094/B-095), JSONata (B-098), GraphQL (B-097), async jobs (B-096), transforms and joins (B-099/B-100), retries (B-102). HTTP queries record only the data source and path in Explore history.
+- Next: B-088 connector catalogue, then B-089 OAuth2 and B-094 presets wave 1.

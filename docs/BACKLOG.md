@@ -32,7 +32,7 @@ Status: `Todo`, `In progress`, `In review` (PR open), `Done` (merged), `Blocked`
 | B-035 | Fix moderate `minimatch` advisory GHSA-g3hv-75wg-m249 (dev-only, via typescript-eslint) with a scoped override; tighten the audit gate (prod: low+, all: moderate+) | M0 | NFR-SEC-010 AC1–AC4 | Done (merged in #2–#4) |
 | B-036 | E2E scenario asserting zero CSP violations in the browser (events + console), with injected-script negative control | M1 | NFR-SEC-007 | Done (merged in #2–#4) |
 | B-037 | Host-provided `os.Root` handed to plugins (ADR-0002) — `internal/fsroot` | M2 | NFR-SEC-006 | Done (merged in #2–#4) |
-| B-039 | Policy HTTP client handed to plugins (ADR-0002) — lands with the REST source | M5 | NFR-SEC-005 | Todo |
+| B-039 | Policy HTTP client handed to plugins (ADR-0002) — lands with the REST source | M5 | NFR-SEC-005 | In review (`internal/netguard`, PR from `feat/http-connector`) |
 | B-040 | Map file-source error kinds to HTTP statuses (400/404/413/415/422) in `POST /api/v1/query` | M2 | FR-016 AC4, FR-011 AC9 | In review (PR from `feat/query-api-endpoint`) |
 | B-041 | File listing capability for the file source (browse a root in the query editor) with the same path controls | M2 | FR-011, NFR-SEC-006 | Todo |
 | B-042 | Provisioned data-source instances from config (+ `GET /api/v1/datasources`) until M3 storage exists | M2 | FR-017 | In review (PR from `feat/query-api-endpoint`) |

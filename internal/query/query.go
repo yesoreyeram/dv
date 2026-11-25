@@ -41,6 +41,8 @@ type Instance struct {
 	Type     string
 	Name     string
 	JSONData json.RawMessage
+	// SecureJSONData holds resolved secrets (FR-079); never returned or logged.
+	SecureJSONData plugin.SecureValues
 }
 
 // Summary is the public view of an instance (FR-017 AC3): identity only, no settings.
@@ -114,7 +116,7 @@ func New(ctx context.Context, opts Options) (*Service, error) {
 }
 
 func (in Instance) config() plugin.SourceConfig {
-	return plugin.SourceConfig{UID: in.UID, Type: in.Type, Name: in.Name, JSONData: in.JSONData}
+	return plugin.SourceConfig{UID: in.UID, Type: in.Type, Name: in.Name, JSONData: in.JSONData, SecureJSONData: in.SecureJSONData}
 }
 
 // DataSources lists the instances sorted by uid. The slice is a copy and never nil.
@@ -339,6 +341,24 @@ func mapError(parent, qctx context.Context, err error) Result {
 		return failure(415, "unsupported_format", err.Error())
 	case errors.Is(err, plugin.ErrDecode):
 		return failure(422, "decode_failed", err.Error())
+	case errors.Is(err, plugin.ErrDestinationNotAllowed):
+		return failure(403, "destination_not_allowed", err.Error())
+	case errors.Is(err, plugin.ErrUpstreamAuth):
+		return failure(502, "upstream_auth_failed", err.Error())
+	case errors.Is(err, plugin.ErrUpstreamNotFound):
+		return failure(404, "not_found", err.Error())
+	case errors.Is(err, plugin.ErrUpstreamRateLimited):
+		return failure(429, "upstream_rate_limited", err.Error())
+	case errors.Is(err, plugin.ErrUpstreamUnreachable):
+		return failure(502, "upstream_unreachable", err.Error())
+	case errors.Is(err, plugin.ErrUpstream):
+		return failure(502, "upstream_error", err.Error())
+	case errors.Is(err, plugin.ErrResponseTooLarge):
+		return failure(413, "too_large", err.Error())
+	case errors.Is(err, plugin.ErrUnsupportedMediaType):
+		return failure(415, "unsupported_format", err.Error())
+	case errors.Is(err, plugin.ErrInvalidQuery), errors.Is(err, plugin.ErrInvalidConfig):
+		return failure(400, "invalid_query", err.Error())
 	case errors.Is(err, fsroot.ErrInvalidPath), errors.Is(err, fsroot.ErrNotRegular),
 		errors.Is(err, fsroot.ErrUnknownRoot), errors.Is(err, plugin.ErrOptions),
 		errors.Is(err, filesource.ErrInvalidQuery), errors.Is(err, filesource.ErrInvalidConfig):

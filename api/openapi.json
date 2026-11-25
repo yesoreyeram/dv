@@ -291,6 +291,11 @@
                   "budget_exhausted",
                   "unsupported_format",
                   "decode_failed",
+                  "destination_not_allowed",
+                  "upstream_auth_failed",
+                  "upstream_rate_limited",
+                  "upstream_unreachable",
+                  "upstream_error",
                   "timeout",
                   "cancelled",
                   "query_failed"
